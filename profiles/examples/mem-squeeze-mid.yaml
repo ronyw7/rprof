@@ -1,0 +1,18 @@
+version: 1
+name: mem-squeeze-mid
+clock: wall                  # seconds since run start
+visibility: full             # none | current | full
+source: {generator: random, seed: 7}   # provenance only
+defaults:
+  cpu:  {cores: 4, period: 100ms}
+  mem:  {high: max, max: max, swap_max: 0}
+  io:   {rbps: max, wbps: max, riops: max, wiops: max}
+  pids: {max: max}
+  net:  {rate: max, delay: 0ms, jitter: 0ms, loss: 0%, partition: none}
+  disk: {capacity: max}
+  harness: {deadline: 300s, feedback: errno}   # returned to the harness, not enforced by rprof
+segments:
+  - {from: 60, to: 120, mem: {high: 800Mi, max: 1Gi}, pids: {max: 16}}
+  - {from: 120, to: 150, net: {loss: 30%}}
+  - {from: 150, to: 180, net: {partition: reject}}
+  - {from: 180, to: 270, cpu: {cores: 0.5}, harness: {deadline: 30s}}

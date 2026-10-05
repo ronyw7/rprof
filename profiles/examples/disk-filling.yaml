@@ -1,0 +1,16 @@
+# Disk filling up: the data filesystem's capacity steps down until writes fail with ENOSPC.
+# Needs the sandbox's /data on a dedicated fixed-size filesystem (e.g. a loop-mounted
+# ext4 made with `mkfs.ext4 -m 0`); rprof fills the rest with a ballast file.
+# Capacity is the total the workload may use: if it already uses more, the ballast
+# shrinks to fit and rprof logs `disk_overcommitted`.
+version: 1
+name: disk-filling
+clock: wall
+visibility: current
+defaults:
+  disk: {capacity: max}
+  harness: {feedback: explain}
+segments:
+  - {from: 30, to: 90, disk: {capacity: 1Gi}}
+  - {from: 90, to: 150, disk: {capacity: 256Mi}}
+  - {from: 150, to: 210, disk: {capacity: 64Mi}}

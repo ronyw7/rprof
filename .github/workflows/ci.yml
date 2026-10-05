@@ -1,0 +1,47 @@
+# Unit tests on every push. Integration and end-to-end tests run as root on a GitHub-hosted
+# Ubuntu VM (cgroup v2, standard Docker). Tests marked `timing` are skipped there: their
+# pass bands assume a quiet, dedicated machine. Run them on the experiment host:
+#   sudo env PYTHONDONTWRITEBYTECODE=1 .venv/bin/pytest -p no:cacheprovider tests/integration tests/e2e
+
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  unit:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+      - run: uv sync --python ${{ matrix.python }}
+      - run: uv run pytest tests/unit -q
+
+  integration:
+    needs: unit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+      - run: uv sync --python 3.12
+      - name: Show what the host supports
+        run: |
+          uname -r
+          stat -fc %T /sys/fs/cgroup
+          sudo .venv/bin/rprof doctor || true
+      - name: Build and pull test images
+        run: |
+          docker build -t rprof-testbox images/testbox
+          docker build -t rprof-netpeer images/netpeer
+          docker pull postgres:16-alpine
+      - name: Integration and end-to-end tests, except timing-sensitive ones
+        run: >
+          sudo env PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest
+          tests/integration tests/e2e -m "not timing" -p no:cacheprovider -ra

@@ -1,0 +1,14 @@
+# CPU square wave: 4 cores, dropping to 0.5 cores for 20 s out of every 60 s.
+# CPU limits only slow work down; tool calls fail only if the harness deadline expires.
+version: 1
+name: cpu-square-wave
+clock: wall
+visibility: current          # the agent sees only the limits in force right now
+defaults:
+  cpu: {cores: 4, period: 100ms}
+  harness: {deadline: 120s, feedback: explain}
+segments:
+  - {from: 30, to: 50, cpu: {cores: 0.5}}
+  - {from: 90, to: 110, cpu: {cores: 0.5}}
+  - {from: 150, to: 170, cpu: {cores: 0.5}}
+  - {from: 210, to: 230, cpu: {cores: 0.5}}

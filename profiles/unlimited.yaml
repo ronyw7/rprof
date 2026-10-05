@@ -1,0 +1,7 @@
+# No limits at all. Use with `--mode measure` for an unconstrained baseline run,
+# or as the starting point for a hand-written profile.
+version: 1
+name: unlimited
+clock: wall
+visibility: none
+segments: []

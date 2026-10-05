@@ -1,0 +1,16 @@
+# Network outage: degraded link, then 30% loss, then a hard partition, then recovery.
+# `reject` refuses connections at once; `drop` would make them hang until a timeout.
+# net.allow exempts CIDRs from every network knob, e.g. a DB sidecar or the LLM API
+# when the harness runs inside the sandbox:  net: {allow: [172.18.0.0/16]}
+version: 1
+name: net-outage
+clock: wall
+visibility: full             # the agent can see the outage coming and when it ends
+defaults:
+  net: {rate: max, delay: 0ms, jitter: 0ms, loss: 0%, partition: none}
+  harness: {feedback: explain}
+segments:
+  - {from: 30, to: 60, label: slow-link, net: {rate: 10mbit, delay: 50ms, jitter: 10ms}}
+  - {from: 60, to: 90, label: lossy, net: {loss: 30%}}
+  - {from: 90, to: 150, label: outage, net: {partition: reject}}
+  # from 150 s on: defaults (network restored)

@@ -1,0 +1,664 @@
+{
+  "$defs": {
+    "CpuKnobs": {
+      "additionalProperties": false,
+      "properties": {
+        "cores": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "const": "max"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "cpu.cores, default 'max'",
+          "title": "Cores"
+        },
+        "cpus": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^(all|\\d+(-\\d+)?(,\\d+(-\\d+)?)*)$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "cpu.cpus, default 'all'",
+          "title": "Cpus"
+        },
+        "period": {
+          "anyOf": [
+            {
+              "pattern": "^\\d+(\\.\\d+)?\\s*(ms|s|m)$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "cpu.period, default '100ms'",
+          "title": "Period"
+        }
+      },
+      "title": "CpuKnobs",
+      "type": "object"
+    },
+    "DiskKnobs": {
+      "additionalProperties": false,
+      "properties": {
+        "capacity": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "pattern": "^(max|\\d+\\s*(Ki|Mi|Gi|Ti|K|M|G|T)?)$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "disk.capacity, default 'max'",
+          "title": "Capacity"
+        }
+      },
+      "title": "DiskKnobs",
+      "type": "object"
+    },
+    "HarnessKnobs": {
+      "additionalProperties": false,
+      "properties": {
+        "deadline": {
+          "anyOf": [
+            {
+              "pattern": "^\\d+(\\.\\d+)?\\s*(ms|s|m)$",
+              "type": "string"
+            },
+            {
+              "const": "none"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "harness.deadline, default 'none'",
+          "title": "Deadline"
+        },
+        "feedback": {
+          "anyOf": [
+            {
+              "enum": [
+                "none",
+                "errno",
+                "explain"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "harness.feedback, default 'errno'",
+          "title": "Feedback"
+        }
+      },
+      "title": "HarnessKnobs",
+      "type": "object"
+    },
+    "IoKnobs": {
+      "additionalProperties": false,
+      "properties": {
+        "rbps": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "pattern": "^(max|\\d+\\s*(Ki|Mi|Gi|Ti|K|M|G|T)?)$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "io.rbps, default 'max'",
+          "title": "Rbps"
+        },
+        "wbps": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "pattern": "^(max|\\d+\\s*(Ki|Mi|Gi|Ti|K|M|G|T)?)$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "io.wbps, default 'max'",
+          "title": "Wbps"
+        },
+        "riops": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "const": "max"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "io.riops, default 'max'",
+          "title": "Riops"
+        },
+        "wiops": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "const": "max"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "io.wiops, default 'max'",
+          "title": "Wiops"
+        }
+      },
+      "title": "IoKnobs",
+      "type": "object"
+    },
+    "KnobMap": {
+      "additionalProperties": false,
+      "properties": {
+        "cpu": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CpuKnobs"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "mem": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MemKnobs"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "io": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IoKnobs"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "pids": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PidsKnobs"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "net": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NetKnobs"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "disk": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DiskKnobs"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "harness": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HarnessKnobs"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "unified": {
+          "anyOf": [
+            {
+              "patternProperties": {
+                "^[a-z_]+\\.[a-z_.]+$": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "cgroup v2 file name -> exact string to write",
+          "title": "Unified"
+        }
+      },
+      "title": "KnobMap",
+      "type": "object"
+    },
+    "MemKnobs": {
+      "additionalProperties": false,
+      "properties": {
+        "high": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "pattern": "^(max|\\d+\\s*(Ki|Mi|Gi|Ti|K|M|G|T)?)$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "mem.high, default 'max'",
+          "title": "High"
+        },
+        "max": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "pattern": "^(max|\\d+\\s*(Ki|Mi|Gi|Ti|K|M|G|T)?)$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "mem.max, default 'max'",
+          "title": "Max"
+        },
+        "swap_max": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^(max|\\d+\\s*(Ki|Mi|Gi|Ti|K|M|G|T)?)$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "mem.swap_max, default 0",
+          "title": "Swap Max"
+        }
+      },
+      "title": "MemKnobs",
+      "type": "object"
+    },
+    "NetKnobs": {
+      "additionalProperties": false,
+      "properties": {
+        "rate": {
+          "anyOf": [
+            {
+              "pattern": "^(max|\\d+(\\.\\d+)?\\s*([kKmMgGtT][iI]?)?([bB][iI][tT]|[bB][pP][sS]))$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "net.rate, default 'max'",
+          "title": "Rate"
+        },
+        "delay": {
+          "anyOf": [
+            {
+              "pattern": "^\\d+(\\.\\d+)?\\s*(ms|s|m)$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "net.delay, default '0ms'",
+          "title": "Delay"
+        },
+        "jitter": {
+          "anyOf": [
+            {
+              "pattern": "^\\d+(\\.\\d+)?\\s*(ms|s|m)$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "net.jitter, default '0ms'",
+          "title": "Jitter"
+        },
+        "loss": {
+          "anyOf": [
+            {
+              "pattern": "^\\d+(\\.\\d+)?\\s*%$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "net.loss, default '0%'",
+          "title": "Loss"
+        },
+        "partition": {
+          "anyOf": [
+            {
+              "enum": [
+                "none",
+                "reject",
+                "drop"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "net.partition, default 'none'",
+          "title": "Partition"
+        },
+        "allow": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "net.allow, default []",
+          "title": "Allow"
+        }
+      },
+      "title": "NetKnobs",
+      "type": "object"
+    },
+    "PidsKnobs": {
+      "additionalProperties": false,
+      "properties": {
+        "max": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "const": "max"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "pids.max, default 'max'",
+          "title": "Max"
+        }
+      },
+      "title": "PidsKnobs",
+      "type": "object"
+    },
+    "SegmentModel": {
+      "additionalProperties": false,
+      "properties": {
+        "cpu": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CpuKnobs"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "mem": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MemKnobs"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "io": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IoKnobs"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "pids": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PidsKnobs"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "net": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NetKnobs"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "disk": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DiskKnobs"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "harness": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HarnessKnobs"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "unified": {
+          "anyOf": [
+            {
+              "patternProperties": {
+                "^[a-z_]+\\.[a-z_.]+$": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "cgroup v2 file name -> exact string to write",
+          "title": "Unified"
+        },
+        "from": {
+          "minimum": 0,
+          "title": "From",
+          "type": "number"
+        },
+        "to": {
+          "title": "To",
+          "type": "number"
+        },
+        "label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Label"
+        }
+      },
+      "required": [
+        "from",
+        "to"
+      ],
+      "title": "SegmentModel",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "const": 1,
+      "title": "Version",
+      "type": "integer"
+    },
+    "name": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+      "title": "Name",
+      "type": "string"
+    },
+    "clock": {
+      "const": "wall",
+      "default": "wall",
+      "title": "Clock",
+      "type": "string"
+    },
+    "visibility": {
+      "default": "none",
+      "enum": [
+        "none",
+        "current",
+        "full"
+      ],
+      "title": "Visibility",
+      "type": "string"
+    },
+    "source": {
+      "additionalProperties": true,
+      "title": "Source",
+      "type": "object"
+    },
+    "defaults": {
+      "$ref": "#/$defs/KnobMap"
+    },
+    "segments": {
+      "items": {
+        "$ref": "#/$defs/SegmentModel"
+      },
+      "title": "Segments",
+      "type": "array"
+    }
+  },
+  "required": [
+    "version",
+    "name"
+  ],
+  "title": "rprof profile",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

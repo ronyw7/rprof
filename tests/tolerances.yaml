@@ -1,0 +1,30 @@
+# Pass bands for timing- and measurement-based tests (design: "Keeping timing tests reliable").
+# Start from the design's numbers; adjust only from repeated runs on the experiment host.
+fidelity:
+  mem_tracks_rel: 0.10          # peak memory within ±10% of the allocation
+  mem_release_bytes: 33554432   # back within 32 MiB of baseline 2 s after exit
+  cpu_tracks_rel: 0.10          # mean cores within ±10%
+  io_tracks_rel: 0.02           # wbytes delta within ±2%
+  net_tracks_rel: 0.03          # tx bytes within ±3% of iperf3's count
+  pids_tracks_abs: 2            # pids.current rises by N ±2
+  alignment_samples: 2          # memory rise within 2 samples of tool_start (plus docker exec start-up)
+  alignment_exec_slack_s: 0.25  # docker exec start-up allowed on top
+enforcement:
+  cpu_quota_rel: 0.10
+  cpuset_max_cores: 1.05
+  io_wbps_rel: 0.20
+  net_rate_rel: 0.15
+  net_loss_abs_pct: 8
+  net_reject_max_s: 1.0
+  net_drop_timeout_s: [4.5, 6.0]
+  disk_capacity_rel: 0.10
+  apply_p95_cgroup_ms: 50
+  apply_p95_net_ms: 200
+schedule:
+  boundary_samples: 1           # measured CPU step within one sample of each boundary (plus one tick of rate lag)
+  mem_boundary_s: 1.0
+  apply_late_ms: 50
+overhead:
+  sampler_10hz_core_frac: 0.01
+  sampler_100hz_core_frac: 0.05
+  workload_impact_rel: 0.02

@@ -1,0 +1,30 @@
+version: 1
+name: golden-random
+clock: wall
+visibility: none
+source:
+  generator: random
+  seed: 7
+  knobs: [mem.max, pids.max]
+  levels:
+    mem.max: [512Mi, 1Gi, max]
+    pids.max: ['16', '64', max]
+  mean: 30.0
+  min: 5.0
+  max: 120.0
+  duration: 300.0
+  rprof_version: 0.1.0
+defaults:
+  mem: {max: max}
+  pids: {max: max}
+segments:
+  - {from: 0, to: 26.8, mem: {max: 512Mi}}
+  - {from: 0, to: 34.7, pids: {max: 16}}
+  - {from: 41.8, to: 66.1, mem: {max: 512Mi}}
+  - {from: 75, to: 100.5, pids: {max: 16}}
+  - {from: 90.9, to: 95.9, mem: {max: 512Mi}}
+  - {from: 151.8, to: 156.8, pids: {max: 16}}
+  - {from: 177.4, to: 212.9, pids: {max: 64}}
+  - {from: 212.9, to: 226.4, pids: {max: 16}}
+  - {from: 214.4, to: 300, mem: {max: 512Mi}}
+  - {from: 273.8, to: 300, pids: {max: 16}}

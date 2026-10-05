@@ -1,0 +1,12 @@
+# Disk I/O throttle on the resolved block device (the DB data volume's disk by default).
+# io.max never sees page-cache hits, and buffered writes are throttled only where the
+# filesystem supports cgroup writeback (`rprof selftest` records this per host).
+version: 1
+name: io-throttle
+clock: wall
+visibility: none
+defaults:
+  io: {rbps: max, wbps: max, riops: max, wiops: max}
+segments:
+  - {from: 30, to: 90, io: {wbps: 20Mi, wiops: 500}}
+  - {from: 90, to: 150, io: {rbps: 50Mi, wbps: 5Mi}}

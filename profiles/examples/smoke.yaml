@@ -1,0 +1,8 @@
+version: 1
+name: smoke
+visibility: full
+defaults:
+  cpu: {cores: 2}
+segments:
+  - {from: 3, to: 8, mem: {max: 256Mi}, pids: {max: 20}}
+  - {from: 8, to: 12, cpu: {cores: 0.5}}
