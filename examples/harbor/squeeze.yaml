@@ -1,0 +1,10 @@
+# For examples/harbor/demo-task. Time 0 is when the agent starts (the oracle runs solve.sh).
+version: 1
+name: demo-squeeze
+visibility: full
+defaults:                       # the task's own budget, from its task.toml: 2 CPUs, 2048 MB
+  cpu: {cores: 2}
+  mem: {max: 2Gi, swap_max: 2Gi}
+segments:
+  - {from: 10, to: 30, label: cpu squeeze, cpu: {cores: 0.5}}
+  - {from: 30, to: 45, label: memory cap, mem: {max: 512Mi, swap_max: 0}}

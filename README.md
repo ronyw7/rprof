@@ -48,6 +48,7 @@ sudo rprof doctor
 - [Key concepts](docs/key-concepts.md): targets, knobs, profiles, segments and runs.
 - User guides: [write a profile](docs/guides/writing-profiles.md),
   [choose limits](docs/guides/limits.md), [connect your harness](docs/guides/harness.md),
+  [run Harbor tasks](docs/guides/harbor.md),
   [read the results](docs/guides/results.md), [set up a host](docs/guides/host-setup.md).
 - Reference: [CLI](docs/reference/cli.md), [profile format](docs/reference/profile.md),
   [Python client](docs/reference/client.md), [control protocol](docs/reference/protocol.md),

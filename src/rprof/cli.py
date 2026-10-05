@@ -20,6 +20,8 @@ gen_app = typer.Typer(no_args_is_help=True, help="Generate profiles (optional he
 app.add_typer(gen_app, name="gen")
 
 TargetOpt = typer.Option(..., "--target", "-t", help="docker:<name|id> or cgroup:<path>")
+RunTargetOpt = typer.Option(..., "--target", "-t", help="docker:<name|id>, cgroup:<path>, or harbor: the container "
+                            "of the Harbor trial the command after `--` starts")
 
 
 def _die(e: RprofError) -> None:
@@ -215,7 +217,7 @@ def validate(profile: Path = typer.Argument(..., exists=False),
 
 
 @app.command(context_settings={"allow_extra_args": True, "ignore_unknown_options": False})
-def run(target: str = TargetOpt,
+def run(target: str = RunTargetOpt,
         profile: Optional[Path] = typer.Option(None, "--profile", "-p", help="Profile YAML (default: unlimited)."),
         mode: str = typer.Option("enforce", "--mode", help="enforce (write limits) or measure (record only)."),
         hz: float = typer.Option(10.0, "--hz", min=1, max=100),
@@ -235,6 +237,9 @@ def run(target: str = TargetOpt,
         no_report: bool = typer.Option(False, "--no-report"),
         hide_limits: bool = typer.Option(False, "--hide-limits",
                                          help="Mask /sys/fs/cgroup in the sandbox so it can't read its limits."),
+        agent_start: Optional[str] = typer.Option(None, "--agent-start", help="With --target harbor: start the "
+                                                  "profile when a process whose command line contains this appears "
+                                                  "(default: known per Harbor agent)."),
         command: Optional[List[str]] = typer.Argument(None, help="Command to launch after `--`.")):
     """Apply a profile (or only measure against it), record and report; optionally launch the harness."""
     from .profile import ProfileError
@@ -248,7 +253,7 @@ def run(target: str = TargetOpt,
                       io_device=io_device, data_path=data_path, data_dir=data_dir, view_dir=view_dir,
                       ctl_dir=ctl_dir, allow_degraded=allow_degraded, duration=duration,
                       command=list(command or []), capabilities=capabilities, report=not no_report,
-                      hide_limits=hide_limits)
+                      hide_limits=hide_limits, agent_start=agent_start)
     try:
         code, sess = do_run(opts)
     except ProfileError as e:
@@ -257,6 +262,8 @@ def run(target: str = TargetOpt,
         raise typer.Exit(1)
     except RprofError as e:
         _die(e)
+    if sess is None:                       # --target harbor: the trial never started
+        raise typer.Exit(code)
     typer.echo(f"rprof: run {sess.run_id} ended ({sess.end_reason}); results in {sess.run_dir}", err=True)
     if sess.restore_errors:
         typer.echo("rprof: RESTORE FAILED; run `sudo rprof reset --run " + str(sess.run_dir) + "`", err=True)

@@ -18,7 +18,7 @@ from rprof.report.data import RunData  # noqa: E402
 MiB = 1 << 20
 
 
-def make_run(tmp_path, name: str, mode: str, limits: dict | None = None):
+def make_run(tmp_path, name: str, mode: str, limits: dict | None = None, rx_mib_s: int = 0, swap: bool = False):
     """A 20 s run at 10 Hz: 1 core, then 2; 200 MiB of memory; disk and network traffic from 10 s."""
     d = tmp_path / f"2026-10-05T1200-{name}"
     d.mkdir()
@@ -27,16 +27,17 @@ def make_run(tmp_path, name: str, mode: str, limits: dict | None = None):
     if limits:
         prof["segments"] = [{"from": 5, "to": 15, **limits}]
     (d / "profile.yaml").write_text(yaml.safe_dump(prof))
-    rows, usage, wb, tx = [], 0.0, 0, 0
+    rows, usage, wb, tx, rx = [], 0.0, 0, 0, 0
     for i in range(201):
         t = round(i * 0.1, 1)
         usage += (2e6 if t > 10 else 1e6) * 0.1
         if t > 10:
             wb, tx = wb + 50 * MiB // 10, tx + 100 * MiB // 10      # 50 MiB/s, 800 Mbit/s
+            rx += rx_mib_s * MiB // 10
         rows.append({"t": t, "cpu": {"usage_usec": int(usage), "throttled_usec": 0},
-                     "mem": {"current": 200 * MiB, "file": 0, "shmem": 0, "swap_current": 0},
+                     "mem": {"current": 200 * MiB, "file": 0, "shmem": 0, "swap_current": 64 * MiB if swap else 0},
                      "io": {"8:0": {"rbytes": 0, "wbytes": wb, "rios": 0, "wios": wb // 4096}},
-                     "net": {"eth0": {"rx_bytes": 0, "tx_bytes": tx}, "tcp_retrans_segs": 0},
+                     "net": {"eth0": {"rx_bytes": rx, "tx_bytes": tx}, "tcp_retrans_segs": 0},
                      "pids": {"current": 3}, "psi": {"cpu": {"some_us": 0}}})
     (d / "samples.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
     (d / "events.jsonl").write_text(json.dumps({"t": 20.0, "type": "run_end"}) + "\n")
@@ -66,14 +67,21 @@ def test_pdfs_embed_truetype_fonts_not_type3(two_runs, tmp_path):
 def test_default_metrics_add_limits_the_core_four_do_not_show(tmp_path):
     runs = [RunData(make_run(tmp_path, "a", "enforce", {"pids": {"max": 20}, "net": {"rate": "10mbit"}}))]
     assert F.default_metrics(runs) == ["cpu", "memory", "disk-read", "disk-write", "net-in", "net-out", "processes"]
+    # A limit on something that never happened adds no panel: no swap panel without swapping.
+    quiet = [RunData(make_run(tmp_path, "s", "enforce", {"mem": {"max": "1Gi", "swap_max": "1Gi"}}))]
+    assert "swap" not in F.default_metrics(quiet)
+    busy = [RunData(make_run(tmp_path, "w", "enforce", {"mem": {"max": "1Gi", "swap_max": "1Gi"}}, swap=True))]
+    assert "swap" in F.default_metrics(busy)
     # A measure-mode run's profile wasn't applied, so its limits don't count.
     runs = [RunData(make_run(tmp_path, "b", "measure", {"pids": {"max": 20}}))]
     assert F.default_metrics(runs) == list(F.CORE)
 
 
-def test_log_axis_only_when_values_span_decades():
-    assert F._log_floor([[0.0, 1.0, 1000.0]], [10.0]) == 1.0
+def test_log_axis_only_when_peaks_and_limits_span_decades():
+    assert F._log_floor([[0.0, 1.0, 1000.0]], [10.0]) == 1.0          # a 1000 peak against a limit of 10
     assert F._log_floor([[1.0, 2.0, 3.0]], []) is None
+    # Two runs peaking alike, with tiny background writes: linear.
+    assert F._log_floor([[0.0003, 250.0], [0.001, 240.0]], []) is None
 
 
 def test_bins_average_rates_over_half_seconds(two_runs):
@@ -127,8 +135,11 @@ def test_a_row_never_wraps(two_runs, tmp_path, monkeypatch):
 
 
 def test_paired_panels_share_a_log_scale(tmp_path):
-    # Out: 800 Mbit/s against a 10 Mbit/s limit needs a log axis. In: nothing, which alone would be
+    # Out: 800 Mbit/s against a 10 Mbit/s limit needs a log axis. In: 8 Mbit/s, which alone would be
     # linear; as out's pair it is log too.
-    runs = [RunData(make_run(tmp_path, "a", "enforce", {"net": {"rate": "10mbit"}}))]
+    runs = [RunData(make_run(tmp_path, "a", "enforce", {"net": {"rate": "10mbit"}}, rx_mib_s=1))]
     floors = F.log_floors(runs, ["cpu", "net-in", "net-out"])
     assert floors["cpu"] is None and floors["net-out"] and floors["net-in"] == floors["net-out"]
+    # With no traffic in, net-in stays a plain linear panel.
+    quiet = [RunData(make_run(tmp_path, "b", "enforce", {"net": {"rate": "10mbit"}}))]
+    assert F.log_floors(quiet, ["net-in", "net-out"])["net-in"] is None

@@ -72,6 +72,7 @@ workload.
 | [Write a profile](guides/writing-profiles.md) | Schedule limits over time, check a profile, generate profiles |
 | [Choose limits](guides/limits.md) | Understand what each limit does to a tool call, from slowing it to failing it |
 | [Connect your harness](guides/harness.md) | Report tool calls, enforce deadlines, explain failures, show the agent its limits |
+| [Run Harbor tasks](guides/harbor.md) | Run a Harbor or Terminal-Bench trial under a profile with one command |
 | [Read the results](guides/results.md) | Find out which limits bound, what each call experienced, and how far usage went |
 | [Set up a host](guides/host-setup.md) | Check a machine, launch sandboxes, recover after a crash, fix common problems |
 | **Reference** | |

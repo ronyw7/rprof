@@ -117,10 +117,12 @@ def _limited(rd: RunData, knob: str) -> bool:
 
 
 def default_metrics(runs: list[RunData]) -> list[str]:
-    """The core metrics, then one for each limit an enforce-mode run sets that they don't show."""
+    """The core metrics, then one for each limit an enforce-mode run sets that they don't show,
+    if that metric has any data."""
     shown = {k for n in CORE for k, _ in METRICS[n].knobs}
     extra = {m.name for m in METRICS.values() if m.name not in CORE
-             and any(k not in shown and _limited(rd, k) for rd in runs for k, _ in m.knobs)}
+             and any(k not in shown and _limited(rd, k) for rd in runs for k, _ in m.knobs)
+             and _active(runs, m)}               # e.g. no swap panel if nothing swapped
     return list(CORE) + [n for n in METRICS if n in extra]
 
 
@@ -169,14 +171,20 @@ def _si(v: float, _pos=None) -> str:
 
 
 def _log_floor(series: list[list[float]], limits: list[float]) -> float | None:
-    """A power of ten to start a log axis at, if the values span more than ~1.5 decades; else None."""
-    pos = sorted(y for ys in series for y in ys if y > 0)
-    if not pos:
+    """A power of ten to start a log axis at, or None for a linear axis.
+
+    Log only when the levels that matter, each run's peak and each limit, span more than ~1.5
+    decades, as when an unconstrained run reaches 30 Gbit/s next to a 10 Mbit/s limit. Background
+    noise far below them doesn't count, and sits on the floor.
+    """
+    levels = [max(ys) for ys in series if ys and max(ys) > 0] + [x for x in limits if x > 0]
+    if len(levels) < 2:
         return None
-    low = min(limits) if limits else pos[len(pos) // 10]
-    if pos[-1] / max(low, 1e-12) < 30:
+    top = max(levels)
+    low = max(min(levels), top / 1e4)
+    if top / low < 30:
         return None
-    return 10.0 ** math.floor(math.log10(low) - 1)
+    return 10.0 ** (math.floor(math.log10(low)) - 1)
 
 
 # Panels that read as a pair share their y scale: both log if either needs it.
@@ -190,13 +198,19 @@ def _own_floor(runs: list[RunData], m: Metric) -> float | None:
     return _log_floor([binned(rd, m)[1] for rd in runs], limits)
 
 
+def _active(runs: list[RunData], m: Metric) -> bool:
+    return any(y > 0 for rd in runs for y in binned(rd, m)[1])
+
+
 def log_floors(runs: list[RunData], metrics: list[str]) -> dict[str, float | None]:
-    """Each metric's log-axis floor, or None for a linear axis."""
+    """Each metric's log-axis floor, or None for a linear axis. A pair shares a log axis when
+    either needs one and both have data; a panel with nothing in it stays linear."""
     floors = {n: _own_floor(runs, METRICS[n]) for n in metrics}
     for pair in PAIRS:
-        fs = [floors[n] for n in pair if floors.get(n)]
-        for n in pair:
-            if fs and n in floors:
+        live = [n for n in pair if n in floors and _active(runs, METRICS[n])]
+        fs = [floors[n] for n in live if floors[n]]
+        for n in live:
+            if fs:
                 floors[n] = min(fs)
     return floors
 

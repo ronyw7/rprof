@@ -149,7 +149,7 @@ rprof run --target TARGET [--profile PROFILE] [OPTIONS] [-- COMMAND ...]
 
 | Option | Description |
 | --- | --- |
-| `--target`, `-t` | Required. The target. |
+| `--target`, `-t` | Required. The target: `docker:<name or id>`, `cgroup:<path>`, or `harbor`, the container of the Harbor trial that the command after `--` starts. See [Run Harbor tasks](../guides/harbor.md). |
 | `--profile`, `-p` | The profile. Default: no limits. |
 | `--mode` | `enforce` writes the limits. `measure` only records usage against them. Default: `enforce`. |
 | `--hz` | Samples per second, from 1 to 100. Default: 10. |
@@ -157,6 +157,7 @@ rprof run --target TARGET [--profile PROFILE] [OPTIONS] [-- COMMAND ...]
 | `--name` | Label used in the run directory's name. Same rule as profile names: letters, digits, `.`, `_` and `-`, starting with a letter or digit, at most 64 characters. Default: the profile's name. |
 | `--harness` | `outside` or `inside` the sandbox. `inside` also opens a socket for the sandbox. Default: `outside`. |
 | `--protect` | Regular expression matched against process command lines. Matching processes are never chosen for memory kills. Repeatable. |
+| `--agent-start` | With `--target harbor`: start the profile when a process whose command line contains this appears in the container. Default: known for Harbor's `terminus-2`, `claude-code` and `oracle` agents. |
 | `--net` | `docker:<name>` whose network the `net` knobs apply to. Repeatable. Default: the target container. |
 | `--io-device` | The disk for I/O limits, as `MAJ:MIN` or `/dev/…` |
 | `--data-path` | The data volume's path inside the container. Default: `/data`. |
@@ -170,7 +171,9 @@ rprof run --target TARGET [--profile PROFILE] [OPTIONS] [-- COMMAND ...]
 | `--hide-limits` | Mount a stand-in over `/sys/fs/cgroup` in the sandbox, so it can't read its real limits. See [Hide the limits from the sandbox](../guides/limits.md#hide-the-limits-from-the-sandbox). |
 
 With a command after `--`, rprof starts it once the first limits are in place, with
-`RPROF_RUN` set, and stops when it exits. Without a command, rprof records until the target
+`RPROF_RUN` set, and stops when it exits. With `--target harbor`, the command is `harbor run`: rprof
+starts it first, attaches when the trial's agent starts, and exits with Harbor's exit code once
+Harbor finishes. Without a command, rprof records until the target
 exits (a container stopping ends the run normally), until `--duration` passes, or until Ctrl-C.
 Either way, the profile's defaults stay in force after its last segment.
 
@@ -179,6 +182,7 @@ rprof exits with the command's exit code, or with one of the [exit codes](#exit-
 ```bash
 sudo rprof run --target docker:sbx --profile p.yaml -- .venv/bin/python my_harness.py
 sudo rprof run --target docker:sbx --mode measure --duration 600      # a baseline with no limits
+sudo -E rprof run --target harbor --profile p.yaml -- harbor run -p tasks/my-task -a terminus-2 -m "$MODEL"
 ```
 
 ## mark

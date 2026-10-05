@@ -68,6 +68,7 @@ class RunOptions:
     capabilities: str | None = None
     quiet: bool = False
     hide_limits: bool = False
+    agent_start: str | None = None      # --target harbor: the agent's start marker, if not the known one
 
 
 def git_sha() -> str | None:
@@ -122,6 +123,7 @@ class RunSession:
             if problem:
                 raise RprofError(f"--name {problem}", 2)
         self.profile = profile or (load_profile(opts.profile) if opts.profile else unlimited_profile())
+        self.harbor = None   # (Launch, Trial) with --target harbor: Harbor is the command, already running
         self.clock = RunClock()
         self.clock.started = False  # setup events get t = 0 until main() anchors the clock
         self.token: str | None = None
@@ -295,6 +297,8 @@ class RunSession:
             "capabilities": self.selftest, "command": o.command, "protect": o.protect,
             "rprof_cgroup": None, "features": {"memory_peak_reset": None}, "hide_limits": o.hide_limits,
         }
+        if self.harbor is not None:
+            meta["harbor"] = {**self.harbor[1].to_meta(), "command": self.harbor[0].command}
         self.meta = meta
         write_json(self.run_dir / "meta.json", meta)
 
@@ -433,6 +437,10 @@ class RunSession:
                         pass
                 self.events.emit("command_start", pid=self.child.pid, argv=o.command)
                 waiters.append(asyncio.create_task(self._wait_child(stop)))
+        if self.harbor is not None:
+            launch = self.harbor[0]
+            self.events.emit("command_start", pid=launch.proc.pid, argv=launch.command, adopted=True)
+            waiters.append(asyncio.create_task(self._wait_harbor(stop)))
         # Without a command the run records until the target exits, --duration or a signal: the
         # profile's defaults stay in force after its last segment.
         end_t = o.duration
@@ -445,6 +453,11 @@ class RunSession:
             w.cancel()
         if self.child and self.child.returncode is None:
             await self._stop_child()
+        if self.harbor is not None and self.end_reason in ("signal", "error"):
+            # The run was interrupted: let Harbor clean up its containers, then stop it.
+            rc = await loop.run_in_executor(None, self.harbor[0].stop)
+            if rc is not None:
+                self.exit_code = rc if rc >= 0 else 128 - rc
         for tsk in tasks:
             try:
                 await asyncio.wait_for(tsk, 5)
@@ -528,6 +541,16 @@ class RunSession:
         self.exit_code = rc if rc >= 0 else 128 - rc
         self.events.emit("command_exit", exit_code=rc)
         if self.end_reason not in ("signal",):
+            self.end_reason = "command_exit"
+        stop.set()
+
+    async def _wait_harbor(self, stop: asyncio.Event) -> None:
+        """Harbor exiting while the run records (it normally exits after its container)."""
+        loop = asyncio.get_running_loop()
+        rc = await loop.run_in_executor(None, self.harbor[0].wait)
+        self.exit_code = rc if rc >= 0 else 128 - rc
+        self.events.emit("command_exit", exit_code=rc)
+        if self.end_reason not in ("signal", "target_exit"):
             self.end_reason = "command_exit"
         stop.set()
 
@@ -685,8 +708,50 @@ def _p95(xs) -> float | None:
     return s[min(len(s) - 1, int(round(0.95 * (len(s) - 1))))]
 
 
-def run(opts: RunOptions, profile: Profile | None = None) -> tuple[int, RunSession]:
-    sess = RunSession(opts, profile)
+def run(opts: RunOptions, profile: Profile | None = None) -> tuple[int, RunSession | None]:
+    if opts.target == "harbor":
+        return _run_harbor(opts, profile)
+    return _run(RunSession(opts, profile))
+
+
+def _run_harbor(opts: RunOptions, profile: Profile | None) -> tuple[int, RunSession | None]:
+    """--target harbor: start Harbor, wait for its trial's agent to start, then run against its container."""
+    import dataclasses
+
+    from .harbor import PROTECT, Launch
+    say = (lambda m: None) if opts.quiet else (lambda m: print(m, file=sys.stderr, flush=True))
+    profile = profile or (load_profile(opts.profile) if opts.profile else unlimited_profile())
+    launch = Launch(list(opts.command), agent_start=opts.agent_start, say=say)
+    launch.start()
+    try:
+        trial = launch.find_trial()
+    except BaseException:
+        launch.stop()
+        raise
+    if trial is None:
+        rc = launch.wait()
+        say(f"rprof: harbor exited ({rc}) before its trial's agent started; nothing recorded")
+        return (rc if rc >= 0 else 128 - rc), None
+    protect = list(opts.protect)
+    if trial.agent in PROTECT and PROTECT[trial.agent] not in protect:
+        protect.append(PROTECT[trial.agent])
+    sess = RunSession(dataclasses.replace(opts, target=f"docker:{trial.container_id}", command=[], protect=protect),
+                      profile)
+    sess.harbor = (launch, trial)
+    try:
+        code, sess = _run(sess)
+    except BaseException:
+        launch.stop()
+        raise
+    if launch.returncode() is None:
+        say("rprof: recording ended; waiting for harbor to finish")
+        rc = launch.wait()
+        if sess.end_reason == "target_exit" and code == 0:
+            code = rc if rc >= 0 else 128 - rc
+    return code, sess
+
+
+def _run(sess: RunSession) -> tuple[int, RunSession]:
     try:
         sess.setup()
     except BaseException:
