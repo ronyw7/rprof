@@ -64,37 +64,51 @@ sudo rprof selftest
 ```
 
 ```text
-Enforcement: does the kernel hold each limit?
-  ...
-        limit                  workload                           result                        pass if
-  ok    cpu.cores=0.5          stress-ng --cpu 2 for 8 s          0.50 cores                    0.40–0.60 cores
-  ok    mem.max=128Mi          hog-mem 256M                       exit 137, 1 OOM kill          OOM-killed; the container survives
-  ok    io.rbps=20Mi           read 100 MiB from 8:0, direct      5.0 s                         3.5–6.5 s
-  ok    net.delay=50ms         5 pings to the peer                50.1 ms average               45–80 ms
+rprof 0.1.1
+host electrode · Linux 6.8.0-85-generic
+
+Self-test
+Verifying resource enforcement and measurement fidelity.
+
+Enforcement
+
+  CPU
+  PASS  cpu.cores=0.5        expected 0.40–0.60 cores        observed 0.50 cores
+  PASS  cpu.period=20ms      expected 40–60 periods/s        observed 50 periods/s
+  PASS  cpu.cpus=0           expected ≤1.10 cores            observed 0.99 cores
+
+  Memory
+  PASS  mem.max=128Mi        expected OOM kill               observed exit 137, 1 OOM kill
   ...
 
-Fidelity: does rprof record usage correctly?
-  ...
-        measurement            workload                           recorded                      pass if
-  ok    CPU usage              stress-ng --cpu 2 for 5 s          2.00 cores                    1.80–2.20 cores
-  ok    memory peak            hog-mem 1G (holds 1 GiB for 3 s)   peak +1025 MiB                922–1126 MiB
-  ok    page cache excluded    write, sync, read a 512 MiB file   +15 MiB; total +527 MiB       ≤ 64 MiB; total ≥ 400 MiB
-  ok    network sent           iperf3 sends 10.0 MiB to the peer  10.0 MiB                      within ±3% of 10.0 MiB
+Fidelity
+
+  PASS  CPU usage            expected 1.80–2.20 cores        observed 2.00 cores
+  PASS  memory peak          expected 922–1126 MiB           observed 1026 MiB
+  PASS  page cache excluded  expected ≤64 MiB                observed +16 MiB
   ...
 
 Summary
-  enforcement  18 of 18 limits hold
-  fidelity     8 of 8 measurements correct
+
+  PASS  Enforcement   18 / 18
+  PASS  Fidelity       8 / 8
+
+  System is fully supported.
+  Capabilities saved to /var/lib/rprof/capabilities.json
 ```
 
-Each line names the check, the workload, what happened, and the condition for passing. `ok`
-means the check passed and `FAIL` that it didn't. `skip` means the host can't run the check,
-for example because it has too little swap, or too few idle CPUs for a 2-core workload.
-`info` reports how the host behaves, with no pass condition.
+Each row gives the status, the limit or measurement tested, the pass condition and what was
+observed. `PASS` and `FAIL` are what they say. `SKIP` means the check can't run on this host,
+for example because it has too little swap, or too few idle CPUs for a 2-core workload. `INFO`
+reports how the host behaves, with no pass condition. A failed or skipped check also shows the
+workload that ran and a note on what went wrong. If a fidelity check fails, rprof keeps that
+recording and prints its path, so you can look at the samples.
 
-`--quick` runs shorter workloads. `--only enforcement` or `--only fidelity` runs one part and
-keeps the other part's earlier results. If a fidelity check fails, rprof keeps that check's
-run directory and prints its path, so you can look at the samples.
+The summary says what the results mean for `rprof run`: for example, which knobs it will
+refuse. `--verbose` shows every check's workload. `--quiet` prints one line, such as
+`rprof selftest: PASS (18/18 enforcement, 8/8 fidelity)`, which suits provisioning scripts;
+the exit code is 1 if any check failed. `--quick` runs shorter workloads. `--only enforcement`
+or `--only fidelity` runs one part and keeps the other part's earlier results.
 
 rprof saves the results in `/var/lib/rprof/capabilities.json` and copies them into every
 run's `meta.json`, so you can compare results from different hosts. `rprof run` refuses to use

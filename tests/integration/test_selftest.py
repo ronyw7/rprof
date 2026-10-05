@@ -27,4 +27,4 @@ def test_selftest_fidelity(tmp_path):
     for name in LOAD_INDEPENDENT:
         assert fid[name]["ok"] is True, (name, fid[name]["detail"])
     assert "DEBUG" not in r.stderr                     # rprof.log stays out of the console
-    assert "Fidelity: does rprof record usage correctly?" in r.stdout and "Summary" in r.stdout
+    assert "\nFidelity\n" in r.stdout and "\nSummary\n" in r.stdout and "System is" in r.stdout

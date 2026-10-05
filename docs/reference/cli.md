@@ -249,13 +249,15 @@ of known workloads are right (fidelity). Writes the results for `rprof run` to c
 See [Check the host](../guides/host-setup.md#check-the-host).
 
 ```text
-rprof selftest [--quick] [--only PART] [--out FILE] [--image IMAGE]
+rprof selftest [--quick] [--only PART] [--verbose | --quiet] [--out FILE] [--image IMAGE]
 ```
 
 | Option | Description |
 | --- | --- |
 | `--quick` | Shorter enforcement workloads |
 | `--only` | `enforcement` or `fidelity`: run one part and keep the other part's earlier results |
+| `-v`, `--verbose` | Show each check's workload and how each part works. Failed and skipped checks always show these. Given before `selftest`, `--verbose` turns on debug logging instead. |
+| `-q`, `--quiet` | Print one line, such as `rprof selftest: PASS (18/18 enforcement, 8/8 fidelity)` |
 | `--out` | Where to write the results. Default: `/var/lib/rprof/capabilities.json`. |
 | `--image` | The image the workloads run in. Default: `rprof-testbox`. Network checks also need `rprof-netpeer`. |
 

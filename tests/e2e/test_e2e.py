@@ -28,7 +28,10 @@ PROFILE = {
     "segments": [
         {"from": 6, "to": 14, "label": "network outage", "net": {"partition": "reject"}},
         {"from": 20, "to": 26, "label": "fork limit", "pids": {"max": 12}},
-        {"from": 30, "to": 36, "label": "cpu squeeze", "cpu": {"cores": 0.2}},
+        # The SQL calls are short CPU bursts. At 0.2 cores they spent ~4% of the segment
+        # throttled on a fast CPU, just under the 5% that counts as binding; 0.05 cores binds
+        # on any host.
+        {"from": 30, "to": 36, "label": "cpu squeeze", "cpu": {"cores": 0.05}},
     ],
 }
 FAIL_SEGMENTS = {1, 2}

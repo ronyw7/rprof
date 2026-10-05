@@ -77,12 +77,10 @@ def test_bracket_delta_counts_a_burst_shorter_than_a_sample(tmp_path):
     assert b - a < 512 * MiB                # interpolating at the call's edges would miss part of it
 
 
-def test_lines_say_what_ran_what_was_recorded_and_the_pass_condition(tmp_path):
+def test_results_carry_expected_observed_and_workload(tmp_path):
     checks = {c.name: c for c in analyse(make_run(tmp_path), {"cpu": True, "network": 10 * MiB})}
-    line = checks["disk_writes"].line()
-    assert line.split()[:3] == ["ok", "disk", "writes"]
-    assert "write 512 MiB" in line and "512 MiB" in line and "pass" not in line and "502–522 MiB" in line
+    c = checks["disk_writes"]
+    assert (c.status, c.label, c.expected, c.observed) == ("PASS", "disk writes", "502–522 MiB", "512 MiB")
     d = checks["memory_peak"].as_dict()
-    assert set(d) >= {"ok", "workload", "result", "pass_if", "detail", "expected", "measured", "unit"}
+    assert set(d) >= {"ok", "label", "expected", "observed", "workload", "detail", "measured", "unit"}
     assert isinstance(d["measured"], int)                          # bytes, rounded
-    assert d["detail"] == f"{d['workload']}: {d['result']} (pass if {d['pass_if']})"

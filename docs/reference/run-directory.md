@@ -38,7 +38,7 @@ All times named `t`, `t0` or `t1` are seconds since the run started. Sizes are i
 | `hide_limits`, `hidden_limits` | Whether `--hide-limits` was given, and the containers it masked |
 | `degraded_knobs` | Knobs skipped because of `--allow-degraded` |
 | `knob_capabilities` | For each knob, `null` if the host can enforce it, or the reason it can't |
-| `capabilities` | A copy of the host's selftest results, if any: `knobs` (enforcement) and `fidelity`. Each check has `ok` (`null` if not tested), `workload`, `result`, `pass_if`, and usually `measured` with its `unit` |
+| `capabilities` | A copy of the host's selftest results, if any: `knobs` (enforcement) and `fidelity`. Each check has `ok` (`null` if not tested), `label`, `expected`, `observed`, `workload`, and usually `measured` with its `unit` |
 | `features` | Kernel features found during the run, such as `memory_peak_reset` |
 
 ## samples.jsonl

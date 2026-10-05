@@ -366,8 +366,10 @@ def selftest(quick: bool = typer.Option(False, "--quick", help="Shorter enforcem
              out: Optional[Path] = typer.Option(None, "--out", help="capabilities.json path "
                                                 "(default /var/lib/rprof/capabilities.json)."),
              image: str = typer.Option("rprof-testbox", "--image", help="Image the workloads run in."),
-             only: Optional[str] = typer.Option(None, "--only", help="enforcement or fidelity")):
-    """Check that limits bite (enforcement) and that measurements are right (fidelity); writes capabilities.json."""
+             only: Optional[str] = typer.Option(None, "--only", help="enforcement or fidelity"),
+             verbose: bool = typer.Option(False, "--verbose", "-v", help="Show each check's workload and method."),
+             quiet: bool = typer.Option(False, "--quiet", "-q", help="Print one summary line.")):
+    """Check that limits hold (enforcement) and measurements are right (fidelity); writes capabilities.json."""
     from .selftest import PARTS
     from .selftest import selftest as do_selftest
     from .util import is_root
@@ -376,7 +378,9 @@ def selftest(quick: bool = typer.Option(False, "--quick", help="Shorter enforcem
         raise typer.Exit(2)
     if not is_root():
         _die(RprofError("selftest needs root", 72))
-    caps, ok = do_selftest(quick=quick, out=out, image=image, echo=typer.echo, only=only)
+    color = sys.stdout.isatty() and "NO_COLOR" not in os.environ
+    caps, ok = do_selftest(quick=quick, out=out, image=image, echo=typer.echo, only=only, verbose=verbose,
+                           quiet=quiet, color=color)
     raise typer.Exit(0 if ok else 1)
 
 

@@ -31,18 +31,6 @@ from .target.cgroup import parse_flat, read_text
 from .util import run_cmd, write_json
 
 
-# Column widths of the result tables.
-W_LABEL, W_WORKLOAD, W_RESULT = 22, 34, 29
-
-
-def row(mark: str, label: str, workload: str, result: str, pass_if: str = "") -> str:
-    return f"  {mark:<5} {label:<{W_LABEL}} {workload:<{W_WORKLOAD}} {result:<{W_RESULT}} {pass_if}".rstrip()
-
-
-def header(first: str, result: str) -> str:
-    return row("", first, "workload", result, "pass if")
-
-
 def _round(x: Any) -> Any:
     if isinstance(x, float):
         return round(x, 3) if abs(x) < 1e4 else int(round(x))
@@ -53,51 +41,136 @@ def _round(x: Any) -> Any:
 
 @dataclass
 class Check:
-    """One selftest line, and its entry in capabilities.json."""
+    """One check's result: a line of output, and its entry in capabilities.json."""
     name: str                 # the key in capabilities.json: a knob, or a fidelity measurement
-    ok: bool | None           # None: not tested
+    ok: bool | None           # None: not tested on this host
+    expected: str             # the pass condition
+    observed: str             # what happened
     workload: str             # what ran in the container
-    result: str               # what happened
-    pass_if: str = ""         # the pass condition
-    label: str = ""           # the line's first column; defaults to name
-    expected: Any = None
-    measured: Any = None
+    label: str = ""           # what the line shows; defaults to name
+    note: str | None = None   # more about the result, e.g. why it wasn't tested
+    measured: Any = None      # the number behind ``observed``
     unit: str | None = None
+    info: bool = False        # reports host behaviour; no pass condition
+
+    @property
+    def status(self) -> str:
+        return "INFO" if self.info else {True: "PASS", False: "FAIL", None: "SKIP"}[self.ok]
 
     @property
     def detail(self) -> str:
-        return f"{self.workload}: {self.result}" + (f" (pass if {self.pass_if})" if self.pass_if else "")
+        return f"observed {self.observed}, expected {self.expected} ({self.workload})" + (
+            f"; {self.note}" if self.note else "")
 
     def as_dict(self) -> dict:
-        d = {"ok": self.ok, "workload": self.workload, "result": self.result, "pass_if": self.pass_if,
-             "detail": self.detail}
-        for k in ("expected", "measured", "unit"):
-            if getattr(self, k) is not None:
-                d[k] = _round(getattr(self, k))
+        d: dict[str, Any] = {"ok": self.ok, "label": self.label or self.name, "expected": self.expected,
+                             "observed": self.observed, "workload": self.workload, "detail": self.detail}
+        if self.note:
+            d["note"] = self.note
+        if self.measured is not None:
+            d["measured"] = _round(self.measured)
+            d["unit"] = self.unit
         return d
 
-    def line(self) -> str:
-        mark = {True: "ok", False: "FAIL", None: "skip"}[self.ok]
-        return row(mark, self.label or self.name, self.workload, self.result, self.pass_if)
+
+COLORS = {"PASS": "32", "FAIL": "1;31", "WARN": "33", "SKIP": "33", "INFO": "2", "bold": "1", "dim": "2"}
+W_LABEL, W_EXPECTED = 20, 22
 
 
-def _counts(results: dict) -> tuple[int, list[str], list[str]]:
-    """(passed, failed names, untested names)."""
-    ok = [k for k, v in results.items() if v.get("ok") is True]
-    bad = [k for k, v in results.items() if v.get("ok") is False]
-    return len(ok), bad, [k for k, v in results.items() if v.get("ok") is None]
+class Reporter:
+    """Prints results as they come in: one row per check by default; ``verbose`` also shows
+    the workload and method; ``quiet`` prints nothing (the caller prints one summary line).
+    Failed and skipped checks are always expanded."""
+
+    def __init__(self, echo: Callable[[str], None] = print, verbose: bool = False, quiet: bool = False,
+                 color: bool = False):
+        self.echo, self.verbose, self.quiet, self.color = echo, verbose, quiet, color
+        self.group: str | None = None
+
+    def paint(self, text: str, style: str) -> str:
+        return f"\033[{COLORS[style]}m{text}\033[0m" if self.color and style in COLORS else text
+
+    def line(self, text: str = "") -> None:
+        if not self.quiet:
+            self.echo(text)
+
+    def section(self, title: str, method: str = "") -> None:
+        self.group = None
+        self.line()
+        self.line(self.paint(title, "bold"))
+        if method and self.verbose:
+            self.line(self.paint(method, "dim"))
+
+    def subgroup(self, name: str) -> None:
+        if name != self.group:
+            self.group = name
+            self.line()
+            self.line(f"  {self.paint(name, 'bold')}")
+
+    def check(self, c: Check) -> None:
+        status = self.paint(f"{c.status:<4}", c.status)
+        label = c.label or c.name
+        expand = self.verbose or c.ok is False or (c.ok is None and not c.info)
+        if expand:
+            self.line(f"  {status}  {label}")
+            for k, v in (("expected" if not c.info else "finding", c.expected), ("observed", c.observed),
+                         ("workload", c.workload), ("note", c.note)):
+                if v:
+                    self.line(f"        {k:<10} {v}")
+            return
+        mid = c.expected if c.info else f"expected {c.expected}"
+        self.line(f"  {status}  {label:<{W_LABEL}} {mid:<{W_EXPECTED + 9}} observed {c.observed}")
 
 
-def _summary(what: str, noun: str, results: dict, kept_from: str | None) -> str:
-    n, bad, untested = _counts(results)
-    s = f"{n} of {len(results)} {noun}"
-    if bad:
-        s += f"; failed: {', '.join(bad)}"
-    if untested:
-        s += f"; not tested: {', '.join(untested)}"
-    if kept_from:
-        s += f" (kept from the selftest at {kept_from})"
-    return f"  {what:<12} {s}"
+def _tally(results: dict) -> tuple[int, list[str], list[str]]:
+    """(passed, failed names, skipped names)."""
+    passed = sum(1 for v in results.values() if v.get("ok") is True)
+    return (passed, [k for k, v in results.items() if v.get("ok") is False],
+            [k for k, v in results.items() if v.get("ok") is None])
+
+
+def _part_status(results: dict) -> str:
+    passed, failed, _ = _tally(results)
+    return "FAIL" if failed and not passed else "WARN" if failed else "PASS"
+
+
+def summarize(out: Reporter, knobs: dict, fid: dict, path: Path, kept: dict[str, str]) -> None:
+    """The summary: a status per part, then what it means for ``rprof run``."""
+    out.section("Summary")
+    out.line()
+    for title, results in (("Enforcement", knobs), ("Fidelity", fid)):
+        passed, failed, skipped = _tally(results)
+        st = _part_status(results)
+        extra = (f", {len(skipped)} skipped" if skipped else "") + (
+            f"  (from {kept[title]})" if title in kept else "")
+        out.line(f"  {out.paint(f'{st:<4}', st)}  {title:<13} {passed:>2} / {len(results)}{extra}")
+    out.line()
+    _, bad_knobs, skipped_knobs = _tally(knobs)
+    _, bad_fid, skipped_fid = _tally(fid)
+    if bad_knobs or bad_fid:
+        out.line("  System is partially supported.")
+    elif skipped_knobs or skipped_fid:
+        out.line("  System is supported; some checks could not run here.")
+    else:
+        out.line("  System is fully supported.")
+    if bad_knobs:
+        out.line(f"  `rprof run` refuses profiles that set {', '.join(bad_knobs)}; "
+                 "use --allow-degraded to run without them.")
+    if bad_fid:
+        labels = ", ".join(fid[k].get("label") or k.replace("_", " ") for k in bad_fid)
+        out.line(f"  Recorded {labels} may be wrong; `rprof run` warns about this.")
+    for k in skipped_knobs + skipped_fid:
+        r = knobs.get(k) or fid.get(k) or {}
+        out.line(f"  Not tested: {k}" + (f" ({r['note']})" if r.get("note") else ""))
+    out.line(f"  Capabilities saved to {path}")
+
+
+def quiet_line(knobs: dict, fid: dict) -> str:
+    sts = {_part_status(knobs), _part_status(fid)}
+    st = "FAIL" if "FAIL" in sts else "WARN" if "WARN" in sts else "PASS"
+    (pk, bk, _), (pf, bf, _) = _tally(knobs), _tally(fid)
+    s = f"rprof selftest: {st} ({pk}/{len(knobs)} enforcement, {pf}/{len(fid)} fidelity)"
+    return s + (f"; failed: {', '.join(bk + bf)}" if bk or bf else "")
 
 
 class Box:
@@ -161,7 +234,8 @@ PARTS = ("enforcement", "fidelity")
 
 
 def selftest(quick: bool = True, out: Path | None = None, image: str = "rprof-testbox",
-             echo: Callable[[str], None] = print, only: str | None = None) -> tuple[dict, bool]:
+             echo: Callable[[str], None] = print, only: str | None = None, verbose: bool = False,
+             quiet: bool = False, color: bool = False) -> tuple[dict, bool]:
     """Run the checks and write capabilities.json; returns (capabilities, all passed).
 
     ``only`` runs one part ("enforcement" or "fidelity") and keeps the other part's results
@@ -170,8 +244,9 @@ def selftest(quick: bool = True, out: Path | None = None, image: str = "rprof-te
     if only is not None and only not in PARTS:
         raise ValueError(f"--only must be one of {', '.join(PARTS)}")
     if not run_cmd(["docker", "image", "inspect", image], timeout=20).ok:
-        echo(f"image {image} not found: build it with `docker build -t {image} images/testbox`")
+        echo(f"rprof selftest: image {image} not found; build it with `docker build -t {image} images/testbox`")
         return {}, False
+    rep = Reporter(echo, verbose=verbose, quiet=quiet, color=color)
     path = Path(out) if out else state_dir() / "capabilities.json"
     try:
         previous = json.loads(path.read_text()) if only else {}
@@ -179,28 +254,33 @@ def selftest(quick: bool = True, out: Path | None = None, image: str = "rprof-te
         previous = {}
     knobs, features = previous.get("knobs", {}), previous.get("features", {})
     fid = previous.get("fidelity", {})
-    echo(f"rprof selftest · rprof {__version__} · {socket.gethostname()} · kernel {platform.release()}")
+    rep.line(f"rprof {__version__}")
+    rep.line(f"host {socket.gethostname()} · Linux {platform.release()}")
+    rep.line()
+    rep.line(rep.paint("Self-test", "bold"))
+    rep.line("Verifying resource enforcement and measurement fidelity.")
     if only in (None, "enforcement"):
-        knobs, features = _enforcement(quick, image, echo)
+        knobs, features = _enforcement(quick, image, rep)
     if only in (None, "fidelity"):
         from .fidelity import run_fidelity
-        fid = run_fidelity(image, echo)
+        fid = run_fidelity(image, rep)
     caps = {"rprof_version": __version__, "at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
             "host": {"hostname": socket.gethostname(), "kernel": platform.release()},
             "quick": quick, "knobs": knobs, "features": features, "fidelity": fid}
     write_json(path, caps)
-    kept = previous.get("at")
-    echo("")
-    echo("Summary")
-    echo(_summary("enforcement", "limits hold", knobs, kept if only == "fidelity" else None))
-    echo(_summary("fidelity", "measurements correct", fid, kept if only == "enforcement" else None))
-    echo(f"  Saved to {path}. `rprof run` refuses limits that failed here (unless")
-    echo("  --allow-degraded) and warns if a measurement failed.")
+    at = previous.get("at", "an earlier selftest")
+    kept = {"Fidelity": at} if only == "enforcement" else {"Enforcement": at} if only == "fidelity" else {}
+    summarize(rep, knobs, fid, path, kept)
+    if quiet:
+        echo(quiet_line(knobs, fid))
     ok = all(v["ok"] is not False for v in knobs.values()) and all(v["ok"] is not False for v in fid.values())
     return caps, ok
 
 
-def _enforcement(quick: bool, image: str, echo: Callable[[str], None]) -> tuple[dict, dict]:
+GROUPS = {"cpu": "CPU", "mem": "Memory", "pids": "Processes", "io": "I/O", "disk": "I/O", "net": "Network"}
+
+
+def _enforcement(quick: bool, image: str, out: Reporter) -> tuple[dict, dict]:
     tag = uuid.uuid4().hex[:6]
     secs = 3 if quick else 8
     knobs: dict[str, dict] = {}
@@ -208,16 +288,14 @@ def _enforcement(quick: bool, image: str, echo: Callable[[str], None]) -> tuple[
     swap_total = 0
 
     def record(c: Check) -> None:
-        knobs[c.name] = c.as_dict()
-        echo(c.line())
+        if not c.info:
+            knobs[c.name] = c.as_dict()
+        out.subgroup(GROUPS[c.name.split(".")[0]] if "." in c.name else out.group or "")
+        out.check(c)
 
-    echo("")
-    echo("Enforcement: does the kernel hold each limit?")
-    echo(f"  rprof sets each limit on a scratch container (image {image}) with the same code")
-    echo("  `rprof run` uses, then runs a workload that needs more than the limit and checks the")
-    echo("  container's cgroup counters, or times the workload. Nothing is recorded in this part.")
-    echo("")
-    echo(header("limit", "result"))
+    out.section("Enforcement", f"  Each limit is set on a scratch {image} container through the same code as "
+                               "`rprof run`,\n  then a workload that needs more than the limit runs in it. "
+                               "Nothing is recorded.")
 
     box = Box(image, f"rprof-selftest-{tag}", data_mb=256)
     net = f"rprof-selftest-{tag}"
@@ -227,23 +305,26 @@ def _enforcement(quick: bool, image: str, echo: Callable[[str], None]) -> tuple[
         stress2 = f"stress-ng --cpu 2 --timeout {secs}s"
         box.apply(cpu_cores=0.5)
         c, _ = _cpu(box, stress2, secs)
-        record(Check("cpu.cores", abs(c - 0.5) <= 0.1, f"stress-ng --cpu 2 for {secs} s", f"{c:.2f} cores",
-                     "0.40–0.60 cores", label="cpu.cores=0.5", expected=0.5, measured=c, unit="cores"))
+        record(Check("cpu.cores", abs(c - 0.5) <= 0.1, "0.40–0.60 cores", f"{c:.2f} cores",
+                     f"stress-ng --cpu 2 for {secs} s", label="cpu.cores=0.5", measured=c, unit="cores"))
         box.apply(cpu_period="20ms")
         c, per = _cpu(box, stress2, secs)
-        record(Check("cpu.period", 40 <= per <= 60 and abs(c - 0.5) <= 0.1, "stress-ng --cpu 2, cpu.cores=0.5",
-                     f"{per:.0f} periods/s, {c:.2f} cores", "40–60 periods/s", label="cpu.period=20ms",
-                     expected=50, measured=per, unit="periods/s"))
+        cores_ok = abs(c - 0.5) <= 0.1
+        record(Check("cpu.period", 40 <= per <= 60 and cores_ok, "40–60 periods/s", f"{per:.0f} periods/s",
+                     f"stress-ng --cpu 2 for {secs} s under cpu.cores=0.5", label="cpu.period=20ms",
+                     note=None if cores_ok else f"used {c:.2f} cores; expected 0.40–0.60",
+                     measured=per, unit="periods/s"))
         box.apply(cpu_cores="max", cpu_period="100ms")
         if box.target.cgroup.has("cpuset.cpus"):
             first = read_text(box.target.cgroup.file("cpuset.cpus.effective")).strip().split(",")[0].split("-")[0]
             box.apply(cpu_cpus=first)
             c, _ = _cpu(box, f"stress-ng --cpu 4 --timeout {secs}s", secs)
-            record(Check("cpu.cpus", c <= 1.1, f"stress-ng --cpu 4 for {secs} s", f"{c:.2f} cores",
-                         "at most 1.10 cores", label=f"cpu.cpus={first}", expected=1.0, measured=c, unit="cores"))
+            record(Check("cpu.cpus", c <= 1.1, "≤1.10 cores", f"{c:.2f} cores", f"stress-ng --cpu 4 for {secs} s",
+                         label=f"cpu.cpus={first}", measured=c, unit="cores"))
             box.apply(cpu_cpus="all")
         else:
-            record(Check("cpu.cpus", False, "-", "cpuset controller not enabled for containers"))
+            record(Check("cpu.cpus", False, "≤1.10 cores", "cannot set cpuset.cpus", "-", label="cpu.cpus",
+                         note="the cpuset controller is not enabled for containers"))
 
         # ---- memory
         ev0 = box.stat("memory.events")
@@ -252,17 +333,19 @@ def _enforcement(quick: bool, image: str, echo: Callable[[str], None]) -> tuple[
         ev1 = box.stat("memory.events")
         kills = ev1.get("oom_kill", 0) - ev0.get("oom_kill", 0)
         alive = run_cmd(["docker", "inspect", "-f", "{{.State.Running}}", box.name]).out.strip() == "true"
-        record(Check("mem.max", rc == 137 and kills > 0 and alive, "hog-mem 256M",
+        record(Check("mem.max", rc == 137 and kills > 0 and alive, "OOM kill",
                      f"exit {rc}, {kills} OOM kill{'s' if kills != 1 else ''}" + ("" if alive else ", container died"),
-                     "OOM-killed; the container survives", label="mem.max=128Mi", measured=kills, unit="oom_kills"))
+                     "hog-mem 256M (allocates 256 MiB)", label="mem.max=128Mi",
+                     note=None if alive else "the container must survive the kill", measured=kills, unit="oom_kills"))
         box.apply(mem_max="max")
         box.apply(mem_high="128Mi")
         ev0 = box.stat("memory.events")
         rc, _, dt = box.exec("timeout 4 hog-mem 160M 2; echo rc=$?")
         ev1 = box.stat("memory.events")
         hi = ev1.get("high", 0) - ev0.get("high", 0)
-        record(Check("mem.high", hi > 0, "hog-mem 160M (stopped after 4 s)", f"throttled {hi}× in {dt:.1f} s",
-                     "throttled (memory.events high)", label="mem.high=128Mi", measured=hi, unit="high_events"))
+        record(Check("mem.high", hi > 0, "throttling", f"throttled {hi}× in {dt:.1f} s",
+                     "hog-mem 160M, stopped after 4 s; counts memory.events high", label="mem.high=128Mi",
+                     measured=hi, unit="high_events"))
         box.apply(mem_high="max")
         try:
             swap_total = int([ln for ln in Path("/proc/meminfo").read_text().splitlines()
@@ -270,17 +353,16 @@ def _enforcement(quick: bool, image: str, echo: Callable[[str], None]) -> tuple[
         except (OSError, IndexError, ValueError):
             pass
         if not box.target.cgroup.has("memory.swap.max"):
-            record(Check("mem.swap_max", False, "-", "no memory.swap.max (swap accounting off)",
-                         label="mem.swap_max=128Mi"))
+            record(Check("mem.swap_max", False, "workload completes", "cannot set memory.swap.max", "-",
+                         label="mem.swap_max=128Mi", note="swap accounting is off"))
         elif swap_total < (256 << 20):
-            record(Check("mem.swap_max", None, "-", f"host swap {swap_total >> 20} MiB, need 256",
-                         label="mem.swap_max=128Mi"))
+            record(Check("mem.swap_max", None, "workload completes", "not tested", "hog-mem 160M under mem.max=96Mi",
+                         label="mem.swap_max=128Mi", note=f"host swap is {swap_total >> 20} MiB; the test needs 256 MiB"))
         else:
             box.apply(mem_max="96Mi", mem_swap_max="128Mi")
             rc, _, _ = box.exec("hog-mem 160M 2")
-            record(Check("mem.swap_max", rc == 0, "hog-mem 160M, mem.max=96Mi",
-                         "finished (exit 0)" if rc == 0 else f"exit {rc}", "finishes, using swap",
-                         label="mem.swap_max=128Mi"))
+            record(Check("mem.swap_max", rc == 0, "workload completes", f"exit {rc}",
+                         "hog-mem 160M under mem.max=96Mi", label="mem.swap_max=128Mi"))
             box.apply(mem_max="max", mem_swap_max=0)
 
         # ---- pids
@@ -288,8 +370,8 @@ def _enforcement(quick: bool, image: str, echo: Callable[[str], None]) -> tuple[
         p0 = box.stat("pids.events").get("max", 0)
         box.exec("for i in $(seq 50); do sleep 5 & done 2>/dev/null; sleep 0.5", timeout=30)
         n = box.stat("pids.events").get("max", 0) - p0
-        record(Check("pids.max", n > 0, "start 50 background sleeps", f"{n} fork{'s' if n != 1 else ''} refused",
-                     "a fork is refused", label="pids.max=20", measured=n, unit="refused_forks"))
+        record(Check("pids.max", n > 0, "fork refused", f"{n} fork{'s' if n != 1 else ''} refused",
+                     "start 50 background sleeps", label="pids.max=20", measured=n, unit="refused_forks"))
         box.exec("pkill sleep || true")
         box.apply(pids_max="max")
 
@@ -297,28 +379,28 @@ def _enforcement(quick: bool, image: str, echo: Callable[[str], None]) -> tuple[
         mb, n = (40, 400) if quick else (100, 1000)
         dev = box.target.io_device
         io_tests = [
-            ("io.wbps", "20Mi", f"write {mb} MiB to {dev}, direct",
+            ("io.wbps", "20Mi", f"write {mb} MiB to {dev} with O_DIRECT at 20 MiB/s",
              f"dd if=/dev/zero of=/var/tmp/rprof-bw bs=1M count={mb} oflag=direct", mb / 20),
-            ("io.rbps", "20Mi", f"read {mb} MiB from {dev}, direct",
+            ("io.rbps", "20Mi", f"read {mb} MiB from {dev} with O_DIRECT at 20 MiB/s",
              "dd if=/var/tmp/rprof-bw of=/dev/null bs=1M iflag=direct", mb / 20),
-            ("io.wiops", 200, f"{n} 4 KiB writes, direct",
+            ("io.wiops", 200, f"{n} 4 KiB writes with O_DIRECT at 200/s",
              f"dd if=/dev/zero of=/var/tmp/rprof-iops bs=4k count={n} oflag=direct", n / 200),
-            ("io.riops", 200, f"{n} 4 KiB reads, direct",
+            ("io.riops", 200, f"{n} 4 KiB reads with O_DIRECT at 200/s",
              "dd if=/var/tmp/rprof-iops of=/dev/null bs=4k iflag=direct", n / 200),
         ]
         if not dev:
             for k, v, *_ in io_tests:
-                record(Check(k, False, "-", "no block device found for the container", label=f"{k}={v}"))
+                record(Check(k, False, "a limited device", "no block device", "-", label=f"{k}={v}",
+                             note="no block device found for the container's filesystem"))
         else:
             for k, v, workload, cmd, want in io_tests:
                 errs = box.apply(**{k.replace(".", "_"): v})
                 rc, outp, dt = box.exec(f"{cmd} 2>&1", timeout=120)
                 box.apply(**{k.replace(".", "_"): "max"})
                 ok = not errs and rc == 0 and abs(dt - want) <= 0.3 * want
-                result = f"{dt:.1f} s" if rc == 0 else f"dd failed: {outp.strip()[-60:]}"
-                record(Check(k, ok, workload, result + (f"; {'; '.join(errs)}" if errs else ""),
-                             f"{0.7 * want:.1f}–{1.3 * want:.1f} s", label=f"{k}={v}", expected=want, measured=dt,
-                             unit="s"))
+                note = "; ".join(errs + ([f"dd: {outp.strip()[-120:]}"] if rc else [])) or None
+                record(Check(k, ok, f"{0.7 * want:.1f}–{1.3 * want:.1f} s", f"{dt:.1f} s" if rc == 0 else "dd failed",
+                             workload, label=f"{k}={v}", note=note, measured=dt, unit="s"))
             box.exec("rm -f /var/tmp/rprof-bw /var/tmp/rprof-iops")
             # Not a knob: whether io.max also slows buffered writes, via cgroup writeback.
             box.apply(io_wbps="20Mi")
@@ -326,9 +408,9 @@ def _enforcement(quick: bool, image: str, echo: Callable[[str], None]) -> tuple[
                                  "rm -f /var/tmp/rprof-dd", timeout=120)
             box.apply(io_wbps="max")
             features["io_buffered_writes_throttled"] = dt >= 0.6 * mb / 20
-            echo(row("info", "buffered writes", f"write {mb} MiB + sync, buffered", f"{dt:.1f} s",
-                     "io.wbps=20Mi slows buffered writes too" if features["io_buffered_writes_throttled"]
-                     else "io limits slow direct I/O only on this host"))
+            record(Check("buffered writes", None, "limit applies to buffered I/O"
+                         if features["io_buffered_writes_throttled"] else "limit skips buffered I/O",
+                         f"{dt:.1f} s", f"write {mb} MiB without O_DIRECT, then sync, under io.wbps=20Mi", info=True))
 
         # ---- disk
         cap = 100
@@ -338,11 +420,11 @@ def _enforcement(quick: bool, image: str, echo: Callable[[str], None]) -> tuple[
         last = outp.strip().split()[-1] if outp.strip() else ""
         written = (int(last) if last.isdigit() else 0) / 2**20
         enospc = "No space" in outp
-        result = f"ENOSPC after {written:.0f} MiB" if enospc else f"no ENOSPC; wrote {written:.0f} MiB"
         record(Check("disk.capacity", enospc and abs(written - cap) <= 0.15 * cap and not errs,
-                     "write 200 MiB to /data", result + (f"; {errs}" if errs else ""),
-                     f"ENOSPC after {0.85 * cap:.0f}–{1.15 * cap:.0f} MiB", label=f"disk.capacity={cap}Mi",
-                     expected=cap, measured=written, unit="MiB"))
+                     f"ENOSPC at {0.85 * cap:.0f}–{1.15 * cap:.0f} MiB",
+                     f"ENOSPC at {written:.0f} MiB" if enospc else f"no ENOSPC ({written:.0f} MiB)",
+                     "write 200 MiB to /data", label=f"disk.capacity={cap}Mi", note="; ".join(errs) or None,
+                     measured=written, unit="MiB"))
         box.exec("rm -f /data/fill")
         box.apply(disk_capacity="max")
     finally:
@@ -350,13 +432,14 @@ def _enforcement(quick: bool, image: str, echo: Callable[[str], None]) -> tuple[
 
     # ---- network: a second container and a peer on their own Docker network
     net_labels = {"net.rate": "net.rate=10mbit", "net.delay": "net.delay=50ms", "net.jitter": "net.jitter=20ms",
-                  "net.loss": "net.loss=30%", "net.partition": "net.partition=reject", "net.allow": "net.allow=<peer>"}
+                  "net.loss": "net.loss=30%", "net.partition": "net.partition=reject", "net.allow": "net.allow"}
     try:
         run_cmd(["docker", "network", "create", net], timeout=30)
         peer_name = f"rprof-selftest-peer-{tag}"
         if not run_cmd(["docker", "image", "inspect", "rprof-netpeer"], timeout=20).ok:
             for k, label in net_labels.items():
-                record(Check(k, None, "-", "rprof-netpeer image missing", "build images/netpeer", label=label))
+                record(Check(k, None, "-", "not tested", "-", label=label,
+                             note="the rprof-netpeer image is missing: docker build -t rprof-netpeer images/netpeer"))
         else:
             run_cmd(["docker", "run", "-d", "--name", peer_name, "--network", net, "rprof-netpeer"], timeout=60)
             peer = peer_name
@@ -395,10 +478,6 @@ def _ping(nb: Box, dest: str, count: int, interval: float = 0.2) -> tuple[float 
     return avg, mdev, loss
 
 
-def _ms(x: float | None) -> str:
-    return "no reply" if x is None else f"{x:.1f} ms"
-
-
 def _network(nb: Box, peer: str, net: str, secs: int, record: Callable[[Check], None]) -> None:
     peer_ip = run_cmd(["docker", "inspect", "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
                        peer]).out.strip()
@@ -411,38 +490,40 @@ def _network(nb: Box, peer: str, net: str, secs: int, record: Callable[[Check], 
     try:
         mbit = float(outp.split("Mbits/sec")[0].split()[-1])
     except (ValueError, IndexError):
-        mbit = -1
-    record(Check("net.rate", abs(mbit - 10) <= 2.0, f"iperf3 to the peer for {secs} s",
-                 f"{mbit:.2f} Mbit/s" if mbit >= 0 else "iperf3 failed", "8–12 Mbit/s", label="net.rate=10mbit",
-                 expected=10, measured=mbit, unit="Mbit/s"))
+        mbit = None
+    record(Check("net.rate", mbit is not None and abs(mbit - 10) <= 2.0, "8–12 Mbit/s",
+                 "iperf3 failed" if mbit is None else f"{mbit:.2f} Mbit/s", f"iperf3 to a peer container for {secs} s",
+                 label="net.rate=10mbit", measured=mbit, unit="Mbit/s"))
     nb.apply(net_rate="max", net_delay="50ms")
     avg, _, _ = _ping(nb, peer, 5)
-    record(Check("net.delay", avg is not None and 45 <= avg <= 80, "5 pings to the peer", f"{_ms(avg)} average",
-                 "45–80 ms", label="net.delay=50ms", expected=50, measured=avg, unit="ms"))
+    record(Check("net.delay", avg is not None and 45 <= avg <= 80, "45–80 ms",
+                 "no reply" if avg is None else f"{avg:.1f} ms", "5 pings to the peer (average round trip)",
+                 label="net.delay=50ms", measured=avg, unit="ms"))
     nb.apply(net_jitter="20ms")
-    avg, mdev, _ = _ping(nb, peer, 20)
-    record(Check("net.jitter", mdev is not None and 5 <= mdev <= 25, "20 pings, net.delay=50ms",
-                 "no reply" if mdev is None else f"varies by ±{mdev:.1f} ms (mdev)", "±5–25 ms",
+    _, mdev, _ = _ping(nb, peer, 20)
+    record(Check("net.jitter", mdev is not None and 5 <= mdev <= 25, "±5–25 ms",
+                 "no reply" if mdev is None else f"±{mdev:.1f} ms", "20 pings under net.delay=50ms (ping's mdev)",
                  label="net.jitter=20ms", measured=mdev, unit="ms"))
     nb.apply(net_delay="0ms", net_jitter="0ms", net_loss="30%")
     _, _, loss = _ping(nb, peer, 100, 0.02)
-    record(Check("net.loss", abs(loss - 30) <= 12, "100 pings to the peer", f"{loss:.0f}% lost", "18–42% lost",
-                 label="net.loss=30%", expected=30, measured=loss, unit="%"))
+    record(Check("net.loss", abs(loss - 30) <= 12, "18–42%", f"{loss:.0f}%", "100 pings to the peer",
+                 label="net.loss=30%", measured=loss, unit="%"))
     nb.apply(net_loss="0%", net_partition="reject")
     rc, _, dt = nb.exec(f"curl -s -m 5 http://{peer}/ -o /dev/null")
-    record(Check("net.partition", rc == 7 and dt < 1.5, "curl to the peer",
-                 f"refused in {dt:.2f} s" if rc == 7 else f"curl exit {rc} after {dt:.1f} s",
-                 "refused within 1.5 s", label="net.partition=reject", measured=dt, unit="s"))
+    record(Check("net.partition", rc == 7 and dt < 1.5, "rejected within 1.5 s",
+                 f"rejected in {dt:.2f} s" if rc == 7 else f"curl exit {rc} after {dt:.1f} s", "curl to the peer",
+                 label="net.partition=reject", measured=dt, unit="s"))
     # Allowed destinations bypass both the partition and the netem delay; others stay blocked.
     nb.apply(net_delay="50ms", net_allow=[f"{peer_ip}/32"])
     rc, _, _ = nb.exec(f"curl -s -m 5 http://{peer}/ -o /dev/null")
     avg, _, _ = _ping(nb, peer, 3)
     _, _, gw_loss = _ping(nb, gateway, 2) if gateway else (None, None, 100.0)
-    ok = rc == 0 and avg is not None and avg < 10 and gw_loss == 100
-    result = (f"peer {_ms(avg)}" + ("" if rc == 0 else f", curl exit {rc}")
-              + ("; gateway blocked" if gw_loss == 100 else "; gateway reachable"))
-    record(Check("net.allow", ok, "pings, reject + 50ms delay", result,
-                 "peer undelayed; gateway blocked", label=f"net.allow={peer_ip}", measured=avg, unit="ms"))
+    problems = (["peer blocked"] if rc != 0 or avg is None else [f"peer delayed {avg:.0f} ms"] if avg >= 10 else []) + (
+        [] if gw_loss == 100 else ["other traffic allowed"])
+    record(Check("net.allow", not problems, "only peer, undelayed",
+                 "; ".join(problems) or f"only peer, {avg:.1f} ms",
+                 "curl and ping the peer, ping the gateway; net.partition=reject and net.delay=50ms",
+                 label=f"net.allow={peer_ip}", measured=avg, unit="ms"))
     nb.apply(net_partition="none", net_allow=[], net_delay="0ms")
 
 
