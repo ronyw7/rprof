@@ -53,7 +53,8 @@ def test_row_is_one_figure_and_paper_is_one_per_metric(two_runs, tmp_path):
     row = F.plot_row(two_runs, tmp_path / "row.pdf")
     assert row.stat().st_size > 1000
     paths = F.plot_paper(two_runs, tmp_path / "figs", style="bold", fmt="png")
-    assert [p.name for p in paths] == ["cpu.png", "memory.png", "disk-write.png", "net-send.png"]
+    assert [p.name for p in paths] == ["cpu.png", "memory.png", "disk-read.png", "disk-write.png", "net-in.png",
+                                       "net-out.png"]
 
 
 def test_pdfs_embed_truetype_fonts_not_type3(two_runs, tmp_path):
@@ -64,7 +65,7 @@ def test_pdfs_embed_truetype_fonts_not_type3(two_runs, tmp_path):
 
 def test_default_metrics_add_limits_the_core_four_do_not_show(tmp_path):
     runs = [RunData(make_run(tmp_path, "a", "enforce", {"pids": {"max": 20}, "net": {"rate": "10mbit"}}))]
-    assert F.default_metrics(runs) == ["cpu", "memory", "disk-write", "net-send", "processes"]
+    assert F.default_metrics(runs) == ["cpu", "memory", "disk-read", "disk-write", "net-in", "net-out", "processes"]
     # A measure-mode run's profile wasn't applied, so its limits don't count.
     runs = [RunData(make_run(tmp_path, "b", "measure", {"pids": {"max": 20}}))]
     assert F.default_metrics(runs) == list(F.CORE)
@@ -119,6 +120,15 @@ def test_a_row_never_wraps(two_runs, tmp_path, monkeypatch):
         return real(*a, **kw)
 
     monkeypatch.setattr(plt, "subplots", spy)
-    F.plot_row(two_runs, tmp_path / "six.pdf", metrics=["cpu", "memory", "disk-write", "net-send", "processes",
-                                                       "cpu-stall"])
+    F.plot_row(two_runs, tmp_path / "six.pdf")                    # the six core metrics
     assert seen["shape"] == (1, 6) and seen["size"][0] == pytest.approx(6 * F.PANEL_IN)
+    F.plot_row(two_runs, tmp_path / "narrow.pdf", width=7.0)
+    assert seen["shape"] == (1, 6) and seen["size"][0] == 7.0
+
+
+def test_paired_panels_share_a_log_scale(tmp_path):
+    # Out: 800 Mbit/s against a 10 Mbit/s limit needs a log axis. In: nothing, which alone would be
+    # linear; as out's pair it is log too.
+    runs = [RunData(make_run(tmp_path, "a", "enforce", {"net": {"rate": "10mbit"}}))]
+    floors = F.log_floors(runs, ["cpu", "net-in", "net-out"])
+    assert floors["cpu"] is None and floors["net-out"] and floors["net-in"] == floors["net-out"]

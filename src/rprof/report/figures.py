@@ -1,7 +1,7 @@
 """Paper figures: one or more runs overlaid, one panel per metric, the limit as a step line.
 
-``plot_row`` puts the metrics side by side in one row (four fill a double column; more widen
-the figure); ``plot_paper`` writes each metric to its own single-column figure. Two styles, both with Times and embedded
+``plot_row`` puts the metrics side by side in one row, ``PANEL_IN`` wide each; ``plot_paper``
+writes each metric to its own single-column figure. ``width`` overrides either width. Two styles, both with Times and embedded
 TrueType fonts (camera-ready checks reject Type 3 fonts): ``classic`` (thin lines, hollow
 markers, dotted grid, as in gnuplot figures) and ``bold`` (bold labels, filled markers, a boxed
 legend). Samples are averaged into ``BIN_S`` bins: raw 10 Hz rates alias.
@@ -27,7 +27,7 @@ from .plot import _limit_steps  # noqa: E402
 MiB = 1 << 20
 BIN_S = 0.5
 SINGLE_COL_IN, DOUBLE_COL_IN = 3.33, 7.0
-PANEL_IN = DOUBLE_COL_IN / 4
+PANEL_IN = 2.4          # each panel of a row
 
 SERIF = ["Times New Roman", "Times", "Nimbus Roman", "Nimbus Roman No9 L", "STIXGeneral", "DejaVu Serif"]
 _COMMON = {"font.family": "serif", "font.serif": SERIF, "mathtext.fontset": "stix",
@@ -87,16 +87,16 @@ METRICS: dict[str, Metric] = {m.name: m for m in (
     Metric("memory", "Memory (MiB)", lambda rd: rd.mem_series("non_reclaimable")[0], False, MiB,
            (("mem.max", MiB), ("mem.high", MiB))),
     Metric("swap", "Swap (MiB)", _path("mem", "swap_current"), False, MiB, (("mem.swap_max", MiB),)),
-    Metric("disk-write", "Disk write (MiB/s)", lambda rd: rd.io_series("wbytes"), True, MiB, (("io.wbps", MiB),),
-           log=True),
     Metric("disk-read", "Disk read (MiB/s)", lambda rd: rd.io_series("rbytes"), True, MiB, (("io.rbps", MiB),),
            log=True),
-    Metric("write-iops", "Write IOPS", lambda rd: rd.io_series("wios"), True, 1.0, (("io.wiops", 1.0),), log=True),
+    Metric("disk-write", "Disk write (MiB/s)", lambda rd: rd.io_series("wbytes"), True, MiB, (("io.wbps", MiB),),
+           log=True),
     Metric("read-iops", "Read IOPS", lambda rd: rd.io_series("rios"), True, 1.0, (("io.riops", 1.0),), log=True),
+    Metric("write-iops", "Write IOPS", lambda rd: rd.io_series("wios"), True, 1.0, (("io.wiops", 1.0),), log=True),
     Metric("disk-used", "Disk used (MiB)", lambda rd: rd.disk_workload(), False, MiB, (("disk.capacity", MiB),)),
-    Metric("net-send", "Net send (Mbit/s)", lambda rd: rd.net_series("tx_bytes"), True, 1e6 / 8,
+    Metric("net-in", "Net in (Mbit/s)", lambda rd: rd.net_series("rx_bytes"), True, 1e6 / 8,
            (("net.rate", 1e6),), log=True),
-    Metric("net-receive", "Net receive (Mbit/s)", lambda rd: rd.net_series("rx_bytes"), True, 1e6 / 8,
+    Metric("net-out", "Net out (Mbit/s)", lambda rd: rd.net_series("tx_bytes"), True, 1e6 / 8,
            (("net.rate", 1e6),), log=True),
     Metric("retransmits", "TCP retransmits (/s)", _path("net", "tcp_retrans_segs"), True, 1.0),
     Metric("processes", "Processes", _path("pids", "current"), False, 1.0, (("pids.max", 1.0),)),
@@ -104,7 +104,7 @@ METRICS: dict[str, Metric] = {m.name: m for m in (
     Metric("memory-stall", "Memory stall (%)", _path("psi", "memory", "some_us"), True, 1e4, pct=True),
     Metric("io-stall", "I/O stall (%)", _path("psi", "io", "some_us"), True, 1e4, pct=True),
 )}
-CORE = ("cpu", "memory", "disk-write", "net-send")
+CORE = ("cpu", "memory", "disk-read", "disk-write", "net-in", "net-out")
 
 
 def _limited(rd: RunData, knob: str) -> bool:
@@ -117,11 +117,11 @@ def _limited(rd: RunData, knob: str) -> bool:
 
 
 def default_metrics(runs: list[RunData]) -> list[str]:
-    """The core four, plus a metric for any limit an enforce-mode run sets that they don't show."""
+    """The core metrics, then one for each limit an enforce-mode run sets that they don't show."""
     shown = {k for n in CORE for k, _ in METRICS[n].knobs}
     extra = {m.name for m in METRICS.values() if m.name not in CORE
              and any(k not in shown and _limited(rd, k) for rd in runs for k, _ in m.knobs)}
-    return [n for n in METRICS if n in CORE or n in extra]
+    return list(CORE) + [n for n in METRICS if n in extra]
 
 
 def run_label(rd: RunData) -> str:
@@ -179,13 +179,34 @@ def _log_floor(series: list[list[float]], limits: list[float]) -> float | None:
     return 10.0 ** math.floor(math.log10(low) - 1)
 
 
-def draw(ax, style: str, runs: list[RunData], labels: list[str], m: Metric, markers: int = 7) -> bool:
-    """One metric on ``ax``; returns whether the y axis is logarithmic."""
+# Panels that read as a pair share their y scale: both log if either needs it.
+PAIRS = (("disk-read", "disk-write"), ("read-iops", "write-iops"), ("net-in", "net-out"))
+
+
+def _own_floor(runs: list[RunData], m: Metric) -> float | None:
+    if not m.log:
+        return None
+    limits = [y for *_, (_, ys) in _limits(runs, m) for y in ys if y == y]
+    return _log_floor([binned(rd, m)[1] for rd in runs], limits)
+
+
+def log_floors(runs: list[RunData], metrics: list[str]) -> dict[str, float | None]:
+    """Each metric's log-axis floor, or None for a linear axis."""
+    floors = {n: _own_floor(runs, METRICS[n]) for n in metrics}
+    for pair in PAIRS:
+        fs = [floors[n] for n in pair if floors.get(n)]
+        for n in pair:
+            if fs and n in floors:
+                floors[n] = min(fs)
+    return floors
+
+
+def draw(ax, style: str, runs: list[RunData], labels: list[str], m: Metric, markers: int = 7,
+         floor: float | None = None) -> bool:
+    """One metric on ``ax``, on a log axis from ``floor`` if given; returns whether it's log."""
     st = STYLES[style]
     data = [binned(rd, m) for rd in runs]
     limits = _limits(runs, m)
-    floor = _log_floor([ys for _, ys in data], [y for *_, (_, ys) in limits for y in ys if y == y]) \
-        if m.log else None
     for i, ((xs, ys), label) in enumerate(zip(data, labels)):
         if floor:
             ys = [max(y, floor) for y in ys]            # idle stretches run along the bottom
@@ -211,6 +232,8 @@ def draw(ax, style: str, runs: list[RunData], labels: list[str], m: Metric, mark
         ax.set_ylim(bottom=0)
         if m.pct:
             ax.set_ylim(top=100)
+        elif not any(y > 0 for _, ys in data for y in ys) and not limits:
+            ax.set_ylim(top=1)                          # nothing happened: a plain 0–1 axis
     return bool(floor)
 
 
@@ -238,41 +261,45 @@ def _save(fig, out: Path) -> Path:
 
 
 def plot_row(run_dirs: list[Path], out: Path, style: str = "classic", metrics: list[str] | None = None,
-             labels: list[str] | None = None) -> Path:
-    """All metrics side by side in one row. Each panel is a quarter of a double column wide, so four
-    fill it; more make the figure wider, and LaTeX scales it to the text width evenly."""
+             labels: list[str] | None = None, width: float | None = None) -> Path:
+    """All metrics side by side in one row, ``PANEL_IN`` wide each unless ``width`` sets the total."""
     runs, labels, metrics = _load(run_dirs, labels, metrics)
     _check(style, metrics)
     st = STYLES[style]
     n = len(metrics)
     with plt.rc_context(st["rc"]):
-        width = SINGLE_COL_IN if n == 1 else max(DOUBLE_COL_IN, n * PANEL_IN)
+        width = width or (SINGLE_COL_IN if n == 1 else n * PANEL_IN)
         fig, axes = plt.subplots(1, n, figsize=(width, st["height"]), squeeze=False)
         flat = list(axes[0])
         handles: dict[str, object] = {}
+        floors = log_floors(runs, metrics)
         for ax, name in zip(flat, metrics):
-            log = draw(ax, style, runs, labels, METRICS[name], markers=5)
+            log = draw(ax, style, runs, labels, METRICS[name], markers=max(3, round(width / n * 3)),
+                       floor=floors[name])
             lo, top = ax.get_ylim()
-            if not METRICS[name].pct:
-                ax.set_ylim(lo, top * (1.5 if log else 1.08))
+            if log:
+                ax.set_ylim(lo, 10.0 ** math.ceil(math.log10(top * 1.2)))    # end on a labelled decade
+            elif not METRICS[name].pct:
+                ax.set_ylim(lo, top * 1.08)
             for h, lab in zip(*ax.get_legend_handles_labels()):
                 handles.setdefault(lab, h)
         fig.tight_layout(pad=0.3, w_pad=1.0)
-        fig.legend(list(handles.values()), list(handles), ncol=min(len(handles), 4), **st["legend_row"])
+        fig.legend(list(handles.values()), list(handles), ncol=min(len(handles), 6), **st["legend_row"])
         return _save(fig, out)
 
 
 def plot_paper(run_dirs: list[Path], out_dir: Path, style: str = "classic", metrics: list[str] | None = None,
-               labels: list[str] | None = None, fmt: str = "pdf") -> list[Path]:
-    """Each metric in its own single-column figure: ``<out_dir>/<metric>.<fmt>``."""
+               labels: list[str] | None = None, fmt: str = "pdf", width: float | None = None) -> list[Path]:
+    """Each metric in its own figure, ``<out_dir>/<metric>.<fmt>``: one column wide unless ``width`` says."""
     runs, labels, metrics = _load(run_dirs, labels, metrics)
     _check(style, metrics)
     st = STYLES[style]
     paths = []
+    floors = log_floors(runs, metrics)
     with plt.rc_context(st["rc"]):
         for name in metrics:
-            fig, ax = plt.subplots(figsize=(SINGLE_COL_IN, st["height"]))
-            log = draw(ax, style, runs, labels, METRICS[name])
+            fig, ax = plt.subplots(figsize=(width or SINGLE_COL_IN, st["height"]))
+            log = draw(ax, style, runs, labels, METRICS[name], floor=floors[name])
             lo, top = ax.get_ylim()
             if not METRICS[name].pct:
                 ax.set_ylim(lo, top * (8 if log else 1.25))      # room for the legend inside

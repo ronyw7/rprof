@@ -239,7 +239,7 @@ runs are overlaid. See [Plot runs](../guides/results.md#plot-runs). Needs
 
 ```text
 rprof plot RUN_DIR... [--row | --paper | --dashboard] [--style STYLE] [--metrics LIST]
-                      [--label LABEL]... [-o PATH] [--format FORMAT]
+                      [--label LABEL]... [--width INCHES] [-o PATH] [--format FORMAT]
 rprof plot --list-metrics
 ```
 
@@ -249,9 +249,10 @@ rprof plot --list-metrics
 | `--paper` | One single-column figure per metric |
 | `--dashboard` | One run's debugging view: every metric, tool calls and failed calls |
 | `--style` | `classic` (the default) or `bold` |
-| `--metrics` | Comma-separated metric names. Default: `cpu`, `memory`, `disk-write` and `net-send`, plus one for each other limit an enforced run set |
+| `--metrics` | Comma-separated metric names. Default: `cpu`, `memory`, `disk-read`, `disk-write`, `net-in` and `net-out`, plus one for each other limit an enforced run set |
 | `--label` | The legend label of each run, in order. Default: each run's `--name`. |
 | `-o`, `--out` | The figure, or the directory for `--paper`. Default: `plot.pdf`, `figures/` or `run.png` in the first run's directory. |
+| `--width` | The figure's width in inches. Default: 2.4 per panel for a row, and 3.33 (one column) for `--paper` |
 | `--format` | `pdf` (the default), `png` or `svg`, when `-o` doesn't give a file name |
 | `--list-metrics` | List the metrics, and the limits each one shows |
 

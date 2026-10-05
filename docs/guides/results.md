@@ -135,8 +135,9 @@ baseline and the same workload under a profile:
 rprof plot runs/<baseline> runs/<squeezed> --label Unconstrained --label Constrained
 ```
 
-This writes `plot.pdf` in the first run's directory: one row of panels, four of which fill a
-two-column page. The other layouts are:
+This writes `plot.pdf` in the first run's directory: one row of panels, 2.4 inches wide each.
+To fit a page, set the whole figure's width, for example `--width 7` for a two-column page. The
+other layouts are:
 
 | Option | Draws |
 | --- | --- |
@@ -147,14 +148,15 @@ two-column page. The other layouts are:
 `--style classic` (the default) draws thin lines, hollow markers and a dotted grid, like
 gnuplot figures. `--style bold` draws bold labels, filled markers and a boxed legend.
 
-By default the figure shows CPU, memory, disk writes and data sent over the network, plus a
-panel for any other limit an enforced run set, such as processes for `pids.max`. Choose the
-panels yourself with `--metrics`, for example `--metrics cpu,cpu-stall,memory`.
-`rprof plot --list-metrics` lists them all, including CPU throttling, swap, disk reads, IOPS,
-data received, TCP retransmits and pressure stalls.
+By default the figure shows CPU, memory, disk reads and writes, and network traffic in and out,
+plus a panel for any other limit an enforced run set, such as processes for `pids.max`. Choose
+the panels yourself with `--metrics`, for example `--metrics cpu,cpu-stall,memory`.
+`rprof plot --list-metrics` lists them all, including CPU throttling, swap, IOPS, TCP
+retransmits and pressure stalls.
 
 Values are averaged over half-second bins. Bandwidth that spans several orders of magnitude,
-such as an unconstrained run next to a 10 Mbit/s limit, gets a log axis. PDFs embed their fonts
+such as an unconstrained run next to a 10 Mbit/s limit, gets a log axis, and so does the other
+panel of its pair (disk read and write, network in and out), so the two read alike. PDFs embed their fonts
 as TrueType, which camera-ready checks require. Plotting needs the `plot` extra:
 `uv sync --extra plot`.
 

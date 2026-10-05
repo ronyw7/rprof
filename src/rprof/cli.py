@@ -360,6 +360,8 @@ def plot(runs: Optional[List[Path]] = typer.Argument(None, help="Run directories
          metrics: Optional[str] = typer.Option(None, "--metrics", help="Comma-separated; see --list-metrics."),
          labels: Optional[List[str]] = typer.Option(None, "--label", help="Legend label for each run, in order."),
          fmt: str = typer.Option("pdf", "--format", help="pdf, png or svg, when -o doesn't say."),
+         width: Optional[float] = typer.Option(None, "--width", help="Figure width in inches. Default: 2.4 per "
+                                               "panel of a row; 3.33 (one column) for --paper."),
          list_metrics: bool = typer.Option(False, "--list-metrics", help="List the metrics and exit.")):
     """Figures of usage over a run, with limits as step lines. Several runs are overlaid."""
     try:
@@ -392,10 +394,10 @@ def plot(runs: Optional[List[Path]] = typer.Argument(None, help="Run directories
                 raise typer.Exit(2)
             typer.echo(str(plot_run(runs[0], out or runs[0] / "run.png")))
         elif paper:
-            for p in figures.plot_paper(runs, out or runs[0] / "figures", style, names, labels, fmt):
+            for p in figures.plot_paper(runs, out or runs[0] / "figures", style, names, labels, fmt, width):
                 typer.echo(str(p))
         else:
-            typer.echo(str(figures.plot_row(runs, out or runs[0] / f"plot.{fmt}", style, names, labels)))
+            typer.echo(str(figures.plot_row(runs, out or runs[0] / f"plot.{fmt}", style, names, labels, width)))
     except (ValueError, FileNotFoundError) as e:
         typer.echo(f"rprof: {e}", err=True)
         raise typer.Exit(2)
