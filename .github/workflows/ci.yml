@@ -7,8 +7,14 @@ name: CI
 
 on:
   push:
+    branches: ["**"]      # not tags: a release tag points at a commit CI has already tested
   pull_request:
   workflow_dispatch:
+
+# A newer push to the same branch replaces a run that hasn't finished.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   unit:
