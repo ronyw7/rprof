@@ -28,8 +28,8 @@ jobs:
         with:
           fetch-depth: 0     # tags and history: rprof's version comes from git
       - uses: astral-sh/setup-uv@v7
-      - run: uv sync --python ${{ matrix.python }}
-      - run: uv run pytest tests/unit -q
+      - run: uv sync --python ${{ matrix.python }} --extra plot
+      - run: uv run --extra plot pytest tests/unit -q
 
   integration:
     needs: unit

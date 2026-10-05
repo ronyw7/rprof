@@ -349,16 +349,56 @@ def timeline(run_dir: Path = typer.Argument(..., exists=True, file_okay=False),
 
 
 @app.command()
-def plot(run_dir: Path = typer.Argument(..., exists=True, file_okay=False),
-         out: Path = typer.Option(None, "-o", "--out", help="Output image (default <run-dir>/run.png).")):
-    """Usage over the run with limits as step lines, tool calls as spans and failures as markers."""
+def plot(runs: Optional[List[Path]] = typer.Argument(None, help="Run directories; several are overlaid."),
+         out: Optional[Path] = typer.Option(None, "-o", "--out", help="Output file, or directory for --paper. "
+                                            "Default: in the first run's directory."),
+         row: bool = typer.Option(False, "--row", help="All metrics in one figure, side by side (the default)."),
+         paper: bool = typer.Option(False, "--paper", help="One single-column figure per metric."),
+         dashboard: bool = typer.Option(False, "--dashboard", help="One run's debugging view: every metric, "
+                                        "tool calls and failures."),
+         style: str = typer.Option("classic", "--style", help="classic or bold."),
+         metrics: Optional[str] = typer.Option(None, "--metrics", help="Comma-separated; see --list-metrics."),
+         labels: Optional[List[str]] = typer.Option(None, "--label", help="Legend label for each run, in order."),
+         fmt: str = typer.Option("pdf", "--format", help="pdf, png or svg, when -o doesn't say."),
+         list_metrics: bool = typer.Option(False, "--list-metrics", help="List the metrics and exit.")):
+    """Figures of usage over a run, with limits as step lines. Several runs are overlaid."""
     try:
+        from .report import figures
         from .report.plot import plot_run
     except ImportError as e:
         typer.echo(f"rprof: plotting needs matplotlib (pip install 'rprof[plot]'): {e}", err=True)
         raise typer.Exit(2)
-    path = plot_run(run_dir, out or run_dir / "run.png")
-    typer.echo(str(path))
+    if list_metrics:
+        for m in figures.METRICS.values():
+            knobs = ", ".join(k for k, _ in m.knobs)
+            typer.echo(f"{m.name:<14} {m.ylabel:<22} {'default' if m.name in figures.CORE else '':<8} "
+                       f"{'limits: ' + knobs if knobs else ''}".rstrip())
+        raise typer.Exit(0)
+    if not runs:
+        typer.echo("rprof: give at least one run directory", err=True)
+        raise typer.Exit(2)
+    if row + paper + dashboard > 1:
+        typer.echo("rprof: choose one of --row, --paper and --dashboard", err=True)
+        raise typer.Exit(2)
+    for r in runs:
+        if not r.is_dir():
+            typer.echo(f"rprof: {r} is not a run directory", err=True)
+            raise typer.Exit(2)
+    names = [m.strip() for m in metrics.split(",") if m.strip()] if metrics else None
+    try:
+        if dashboard:
+            if len(runs) > 1:
+                typer.echo("rprof: --dashboard shows one run", err=True)
+                raise typer.Exit(2)
+            typer.echo(str(plot_run(runs[0], out or runs[0] / "run.png")))
+        elif paper:
+            for p in figures.plot_paper(runs, out or runs[0] / "figures", style, names, labels, fmt):
+                typer.echo(str(p))
+        else:
+            typer.echo(str(figures.plot_row(runs, out or runs[0] / f"plot.{fmt}", style, names, labels)))
+    except (ValueError, FileNotFoundError) as e:
+        typer.echo(f"rprof: {e}", err=True)
+        raise typer.Exit(2)
 
 
 @app.command()

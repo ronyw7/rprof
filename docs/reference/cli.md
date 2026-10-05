@@ -27,7 +27,7 @@ absolute or relative to `/sys/fs/cgroup`.
 | [`now`](#now) | Print the agent view of a running run |
 | [`report`](#report) | Regenerate a run's report |
 | [`timeline`](#timeline) | Print usage per interval |
-| [`plot`](#plot) | Plot usage and limits |
+| [`plot`](#plot) | Draw figures of usage and limits |
 | [`selftest`](#selftest) | Test enforcement on this host |
 | [`gen`](#gen) | Generate profiles |
 
@@ -233,14 +233,27 @@ rprof timeline RUN_DIR [--json]
 
 ## plot
 
-Draws usage over the run, with limits as step lines, tool calls as spans and failed calls as
-markers. Needs `uv sync --extra plot`.
+Draws paper-style figures of usage over one or more runs, with limits as step lines. Several
+runs are overlaid. See [Plot runs](../guides/results.md#plot-runs). Needs
+`uv sync --extra plot`.
 
 ```text
-rprof plot RUN_DIR [-o FILE]
+rprof plot RUN_DIR... [--row | --paper | --dashboard] [--style STYLE] [--metrics LIST]
+                      [--label LABEL]... [-o PATH] [--format FORMAT]
+rprof plot --list-metrics
 ```
 
-`-o`, `--out` sets the image file. Default: `<run-dir>/run.png`.
+| Option | Description |
+| --- | --- |
+| `--row` | All metrics side by side in one row. The default. |
+| `--paper` | One single-column figure per metric |
+| `--dashboard` | One run's debugging view: every metric, tool calls and failed calls |
+| `--style` | `classic` (the default) or `bold` |
+| `--metrics` | Comma-separated metric names. Default: `cpu`, `memory`, `disk-write` and `net-send`, plus one for each other limit an enforced run set |
+| `--label` | The legend label of each run, in order. Default: each run's `--name`. |
+| `-o`, `--out` | The figure, or the directory for `--paper`. Default: `plot.pdf`, `figures/` or `run.png` in the first run's directory. |
+| `--format` | `pdf` (the default), `png` or `svg`, when `-o` doesn't give a file name |
+| `--list-metrics` | List the metrics, and the limits each one shows |
 
 ## selftest
 

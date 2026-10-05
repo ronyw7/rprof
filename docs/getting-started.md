@@ -250,7 +250,8 @@ constrained the workload, and gives the evidence:
   because segment 0 is the unconstrained part of the run. In an experiment, a segment with no
   effect tested nothing.
 
-To see the run as a picture, run `rprof plot $R -o run.png`.
+To see the run as a figure, run `rprof plot $R`. It writes `plot.pdf` in the run's directory.
+[Plot runs](guides/results.md#plot-runs) shows how to compare runs in one figure.
 
 ## 8. Clean up
 

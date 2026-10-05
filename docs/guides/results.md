@@ -125,15 +125,38 @@ A new row starts whenever a tool call starts or ends or a limit changes. So with
 same calls are running under the same limits. A call that ran alone gets exact numbers. Calls
 that overlap share their rows' usage. `rprof timeline --json` prints every field.
 
-## See the run as a plot
+## Plot runs
+
+`rprof plot` draws figures in the style of systems papers: Times type, one panel per metric,
+each limit as a step line. Give it several runs to compare them, for example an unconstrained
+baseline and the same workload under a profile:
 
 ```bash
-rprof plot runs/<run-id> -o run.png
+rprof plot runs/<baseline> runs/<squeezed> --label Unconstrained --label Constrained
 ```
 
-The plot shows CPU, memory, disk I/O, processes, network and pressure over the run. Limits
-appear as dashed lines that step at segment boundaries, tool calls as shaded spans, and failed
-calls as red markers. Plotting needs the `plot` extra: `uv sync --extra plot`.
+This writes `plot.pdf` in the first run's directory: one row of panels, four of which fill a
+two-column page. The other layouts are:
+
+| Option | Draws |
+| --- | --- |
+| `--row` | All metrics side by side in one row (the default) |
+| `--paper` | Each metric as its own single-column figure, `<metric>.pdf`, in a directory |
+| `--dashboard` | One run's debugging view: every metric, the tool calls as spans and failed calls as markers |
+
+`--style classic` (the default) draws thin lines, hollow markers and a dotted grid, like
+gnuplot figures. `--style bold` draws bold labels, filled markers and a boxed legend.
+
+By default the figure shows CPU, memory, disk writes and data sent over the network, plus a
+panel for any other limit an enforced run set, such as processes for `pids.max`. Choose the
+panels yourself with `--metrics`, for example `--metrics cpu,cpu-stall,memory`.
+`rprof plot --list-metrics` lists them all, including CPU throttling, swap, disk reads, IOPS,
+data received, TCP retransmits and pressure stalls.
+
+Values are averaged over half-second bins. Bandwidth that spans several orders of magnitude,
+such as an unconstrained run next to a 10 Mbit/s limit, gets a log axis. PDFs embed their fonts
+as TrueType, which camera-ready checks require. Plotting needs the `plot` extra:
+`uv sync --extra plot`.
 
 ## How far did usage go over the limits?
 
