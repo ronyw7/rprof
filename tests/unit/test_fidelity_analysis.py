@@ -53,18 +53,18 @@ def make_run(tmp_path, io_bytes=512 * MiB, mem_rise=1024 * MiB, release=True):
 def test_all_checks_pass_on_a_faithful_recording(tmp_path):
     checks = {c.name: c for c in analyse(make_run(tmp_path), {"cpu": True, "network": 10 * MiB})}
     assert {n: c.ok for n, c in checks.items()} == {
-        "cpu": True, "memory": True, "memory_release": True, "alignment": True, "io": True,
-        "page_cache": True, "network": True, "pids": True}
-    assert checks["io"].measured == 512 * MiB
+        "cpu": True, "memory_peak": True, "memory_after_exit": True, "call_timing": True, "disk_writes": True,
+        "page_cache": True, "network_sent": True, "processes": True}
+    assert checks["disk_writes"].measured == 512 * MiB
 
 
 def test_wrong_recordings_fail(tmp_path):
     checks = {c.name: c for c in analyse(make_run(tmp_path, io_bytes=400 * MiB, mem_rise=700 * MiB, release=False),
                                          {"network": 10 * MiB})}
-    assert checks["io"].ok is False
-    assert checks["memory"].ok is False
-    assert checks["memory_release"].ok is False
-    assert "network" in checks and checks["network"].ok is True
+    assert checks["disk_writes"].ok is False
+    assert checks["memory_peak"].ok is False
+    assert checks["memory_after_exit"].ok is False
+    assert checks["network_sent"].ok is True
     assert "cpu" not in checks            # not run, and not reported as skipped either
 
 
@@ -75,3 +75,14 @@ def test_bracket_delta_counts_a_burst_shorter_than_a_sample(tmp_path):
     assert _bracket_delta(rd, ys, 12.01, 12.09) == 512 * MiB
     a, b = rd._interp(ys, 12.01), rd._interp(ys, 12.09)
     assert b - a < 512 * MiB                # interpolating at the call's edges would miss part of it
+
+
+def test_lines_say_what_ran_what_was_recorded_and_the_pass_condition(tmp_path):
+    checks = {c.name: c for c in analyse(make_run(tmp_path), {"cpu": True, "network": 10 * MiB})}
+    line = checks["disk_writes"].line()
+    assert line.split()[:3] == ["ok", "disk", "writes"]
+    assert "write 512 MiB" in line and "512 MiB" in line and "pass" not in line and "502–522 MiB" in line
+    d = checks["memory_peak"].as_dict()
+    assert set(d) >= {"ok", "workload", "result", "pass_if", "detail", "expected", "measured", "unit"}
+    assert isinstance(d["measured"], int)                          # bytes, rounded
+    assert d["detail"] == f"{d['workload']}: {d['result']} (pass if {d['pass_if']})"

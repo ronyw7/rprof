@@ -41,41 +41,60 @@ sudo rprof doctor --target docker:sbx
 Each line starts with `ok`, `warn` or `FAIL`. `--deep` also runs quick tests that set limits on
 a scratch cgroup and confirm the kernel enforces them.
 
-`selftest` goes further. It starts test containers and checks two things:
+`selftest` goes further: it starts real containers and runs workloads in them. It checks
+two things.
 
-- **Enforcement:** each limit works. rprof applies every knob to a scratch container, runs a
-  workload under it, and checks that the limit bites.
-- **Fidelity:** the measurements are right. rprof runs workloads with a known footprint as
-  tool calls in a short measure-mode run, then compares what it recorded with what the
-  workloads did: 2 busy cores, 1 GiB of memory, a 512 MiB direct write, reading a 512 MiB file
-  (page cache must not count as memory in use), a 10 MiB transfer, and 50 processes. The numbers
-  come from the run's `samples.jsonl` and events, through the same code that builds reports.
+- **Enforcement: does each limit hold?** For each knob, rprof sets the limit on a scratch
+  container with the same code `rprof run` uses, then runs a workload that needs more than the
+  limit. It checks the container's cgroup counters, or times the workload. For example, it
+  limits the container to half a core and checks that `stress-ng --cpu 2` gets 0.40–0.60 cores.
+- **Fidelity: does rprof record usage correctly?** rprof records a scratch container with a
+  real measure-mode run at 20 samples a second, and runs workloads of known size in it as tool
+  calls: 2 busy cores, 1 GiB of memory, a 512 MiB direct write, writing and reading a 512 MiB
+  file, a 10 MiB transfer and 50 processes. It reads the run's samples back through the same
+  code that builds reports, and compares them with the known sizes. Reading the file must not
+  count as memory in use, because page cache can be reclaimed.
 
-It takes about a minute and needs the test images:
+It takes about two minutes and needs the test images:
 
 ```bash
 docker build -t rprof-testbox images/testbox
 docker build -t rprof-netpeer images/netpeer
-sudo rprof selftest --quick
+sudo rprof selftest
 ```
 
 ```text
-ok    cpu.cores, cpu.period                stress-ng --cpu 2 under 0.5 cores: 0.50 cores
-ok    mem.max                              hog-mem 256M under 128Mi: exit 137, oom_kill +1, container alive
-ok    net.rate                             iperf3 under 10mbit: 9.56 Mbit/s
-...
-ok    fidelity cpu                         stress-ng --cpu 2: recorded 2.00 cores (expect 2.00 ±10%)
-ok    fidelity memory                      hog-mem 1G: the call's recorded peak is 1025 MiB above baseline (expect 1024 MiB ±10%; basis non_reclaimable)
-ok    fidelity io                          dd 512 MiB direct: recorded 512 MiB written on 8:0 (expect 512 MiB ±2%)
-ok    fidelity network                     iperf3 sent 10 MiB: recorded 10 MiB sent (expect within ±3%)
-...
-wrote /var/lib/rprof/capabilities.json
+Enforcement: does the kernel hold each limit?
+  ...
+        limit                  workload                           result                        pass if
+  ok    cpu.cores=0.5          stress-ng --cpu 2 for 8 s          0.50 cores                    0.40–0.60 cores
+  ok    mem.max=128Mi          hog-mem 256M                       exit 137, 1 OOM kill          OOM-killed; the container survives
+  ok    io.rbps=20Mi           read 100 MiB from 8:0, direct      5.0 s                         3.5–6.5 s
+  ok    net.delay=50ms         5 pings to the peer                50.1 ms average               45–80 ms
+  ...
+
+Fidelity: does rprof record usage correctly?
+  ...
+        measurement            workload                           recorded                      pass if
+  ok    CPU usage              stress-ng --cpu 2 for 5 s          2.00 cores                    1.80–2.20 cores
+  ok    memory peak            hog-mem 1G (holds 1 GiB for 3 s)   peak +1025 MiB                922–1126 MiB
+  ok    page cache excluded    write, sync, read a 512 MiB file   +15 MiB; total +527 MiB       ≤ 64 MiB; total ≥ 400 MiB
+  ok    network sent           iperf3 sends 10.0 MiB to the peer  10.0 MiB                      within ±3% of 10.0 MiB
+  ...
+
+Summary
+  enforcement  18 of 18 limits hold
+  fidelity     8 of 8 measurements correct
 ```
 
-`--only enforcement` or `--only fidelity` runs one part and keeps the other part's earlier
-results. The CPU fidelity check is skipped if fewer than 2.5 CPUs are idle. If a fidelity check
-fails, rprof keeps that check's run directory and prints its path, so you can look at the
-samples.
+Each line names the check, the workload, what happened, and the condition for passing. `ok`
+means the check passed and `FAIL` that it didn't. `skip` means the host can't run the check,
+for example because it has too little swap, or too few idle CPUs for a 2-core workload.
+`info` reports how the host behaves, with no pass condition.
+
+`--quick` runs shorter workloads. `--only enforcement` or `--only fidelity` runs one part and
+keeps the other part's earlier results. If a fidelity check fails, rprof keeps that check's
+run directory and prints its path, so you can look at the samples.
 
 rprof saves the results in `/var/lib/rprof/capabilities.json` and copies them into every
 run's `meta.json`, so you can compare results from different hosts. `rprof run` refuses to use

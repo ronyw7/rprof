@@ -28,6 +28,7 @@ build-backend = "hatchling.build"
 # The version comes from git tags (see src/rprof/_version.py for the scheme).
 [tool.hatch.version]
 source = "vcs"
+fallback-version = "0+unknown"     # building from a copy without .git, e.g. a source tarball
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/rprof"]

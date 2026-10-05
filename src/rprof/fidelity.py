@@ -16,7 +16,6 @@ import shutil
 import threading
 import time
 import uuid
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
@@ -24,6 +23,7 @@ from .client import Client
 from .profile import unlimited_profile
 from .report.data import RunData
 from .runner import RunOptions, RunSession
+from .selftest import Check, header
 from .snapshot import state_dir
 from .util import run_cmd
 
@@ -39,18 +39,6 @@ NET_REL = 0.03            # bytes sent within ±3% of what iperf3 reports
 PIDS_ABS = 3              # 50 processes ±3 (the shell running them counts too)
 ALIGN_SAMPLES = 2         # the memory rise shows up within 2 samples of tool_start...
 EXEC_SLACK_S = 0.25       # ...plus docker exec start-up
-
-
-@dataclass
-class Check:
-    name: str
-    ok: bool | None           # None: skipped
-    detail: str
-    expected: Any = None
-    measured: Any = None
-
-    def as_dict(self) -> dict:
-        return {"ok": self.ok, "detail": self.detail, "expected": self.expected, "measured": self.measured}
 
 
 def idle_cores(window_s: float = 0.5) -> float:
@@ -131,8 +119,8 @@ def _rise(peak: float | None, base: float | None) -> float | None:
     return None if peak is None or base is None else peak - base
 
 
-def _mib(x: float | None) -> str:
-    return "-" if x is None else f"{x / MiB:.0f} MiB"
+def _mib(x: float | None, digits: int = 0, sign: bool = False) -> str:
+    return "-" if x is None else f"{x / MiB:{'+' if sign else ''}.{digits}f} MiB"
 
 
 def analyse(rd: RunData, ran: dict[str, Any]) -> list[Check]:
@@ -147,64 +135,74 @@ def analyse(rd: RunData, ran: dict[str, Any]) -> list[Check]:
         r = rd.rate(("cpu", "usage_usec"), c.t0 + 1.0, c.end(rd.t_end) - 0.5)
         cores = None if r is None else r / 1e6
         ok = cores is not None and abs(cores - 2.0) <= CPU_REL * 2.0
-        out.append(Check("cpu", ok, f"stress-ng --cpu 2: recorded {cores or 0:.2f} cores (expect 2.00 ±{CPU_REL:.0%})",
-                         2.0, cores))
+        out.append(Check("cpu", ok, "stress-ng --cpu 2 for 5 s", "-" if cores is None else f"{cores:.2f} cores",
+                         f"{2 * (1 - CPU_REL):.2f}–{2 * (1 + CPU_REL):.2f} cores", label="CPU usage",
+                         expected=2.0, measured=cores, unit="cores"))
     elif "cpu_skipped" in ran:
-        out.append(Check("cpu", None, ran["cpu_skipped"]))
+        out.append(Check("cpu", None, "stress-ng --cpu 2 for 5 s", ran["cpu_skipped"], label="CPU usage"))
 
     c = calls["memory"]
     base = _at(rd, nr, c.t0)
     peak = c.mem_peak_nonreclaimable
     rise = None if peak is None or base is None else peak - base
     ok = rise is not None and abs(rise - 1024 * MiB) <= MEM_REL * 1024 * MiB
-    out.append(Check("memory", ok, f"hog-mem 1G: the call's recorded peak is {_mib(rise)} above baseline "
-                     f"(expect 1024 MiB ±{MEM_REL:.0%}; basis {basis})", 1024 * MiB, rise))
+    out.append(Check("memory_peak", ok, "hog-mem 1G (holds 1 GiB for 3 s)",
+                     f"peak {_mib(rise, sign=True)}" + ("" if basis == "non_reclaimable" else f" ({basis})"),
+                     f"{1024 * (1 - MEM_REL):.0f}–{1024 * (1 + MEM_REL):.0f} MiB", label="memory peak",
+                     expected=1024 * MiB, measured=rise, unit="bytes"))
     after = _at(rd, nr, c.end(rd.t_end) + 2.0)
     diff = None if after is None or base is None else after - base
     ok = diff is not None and abs(diff) <= MEM_RELEASE
-    out.append(Check("memory_release", ok, f"2 s after hog-mem exits: {_mib(diff)} above baseline "
-                     f"(expect within {_mib(MEM_RELEASE)})", 0, diff))
+    out.append(Check("memory_after_exit", ok, "2 s after hog-mem exits", f"{_mib(diff, sign=True)} vs before",
+                     f"within ±{_mib(MEM_RELEASE)}", label="memory after exit", expected=0, measured=diff,
+                     unit="bytes"))
     rise_t = next((rd.t[i] for i in range(len(rd.t)) if rd.t[i] > c.t0 and nr[i] is not None
                    and base is not None and nr[i] - base > 128 * MiB), None)
     lag = None if rise_t is None else rise_t - c.t0
     limit = ALIGN_SAMPLES / HZ + EXEC_SLACK_S
     ok = lag is not None and lag <= limit
-    out.append(Check("alignment", ok, f"memory rise recorded {lag or 0:.2f} s after tool_start "
-                     f"(expect at most {limit:.2f} s)", limit, lag))
+    out.append(Check("call_timing", ok, "hog-mem 1G's memory rise", "never seen" if lag is None
+                     else f"seen {lag:.2f} s after start", f"within {limit:.2f} s of the call's start",
+                     label="call timing", expected=limit, measured=lag, unit="s"))
 
     c = calls["io"]
     wrote = _bracket_delta(rd, rd.io_series("wbytes"), c.t0, c.end(rd.t_end))
     ok = wrote is not None and abs(wrote - 512 * MiB) <= IO_REL * 512 * MiB
-    out.append(Check("io", ok, f"dd 512 MiB direct: recorded {_mib(wrote)} written on {rd.io_dev} "
-                     f"(expect 512 MiB ±{IO_REL:.0%})", 512 * MiB, wrote))
+    out.append(Check("disk_writes", ok, f"write 512 MiB to {rd.io_dev}, direct", _mib(wrote),
+                     f"{512 * (1 - IO_REL):.0f}–{512 * (1 + IO_REL):.0f} MiB", label="disk writes",
+                     expected=512 * MiB, measured=wrote, unit="bytes"))
 
     c = calls["page_cache"]
     t1 = c.end(rd.t_end)
     tot_rise = _rise(_max_in(rd, total, c.t0, t1), _at(rd, total, c.t0))
     nr_rise = _rise(_max_in(rd, nr, c.t0, t1), _at(rd, nr, c.t0))
     ok = tot_rise is not None and nr_rise is not None and tot_rise >= 400 * MiB and nr_rise <= CACHE_NR_MAX
-    out.append(Check("page_cache", ok, f"write and read 512 MiB: total memory +{_mib(tot_rise)}, non-reclaimable "
-                     f"+{_mib(nr_rise)} (expect at least 400 MiB, and at most {_mib(CACHE_NR_MAX)})",
-                     {"total_min": 400 * MiB, "nonreclaimable_max": CACHE_NR_MAX},
-                     {"total": tot_rise, "nonreclaimable": nr_rise}))
+    out.append(Check("page_cache", ok, "write, sync, read a 512 MiB file",
+                     f"{_mib(nr_rise, sign=True)}; total {_mib(tot_rise, sign=True)}",
+                     f"≤ {_mib(CACHE_NR_MAX)}; total ≥ 400 MiB", label="page cache excluded",
+                     expected={"memory_max": CACHE_NR_MAX, "total_min": 400 * MiB},
+                     measured={"memory": nr_rise, "total": tot_rise}, unit="bytes"))
 
     if "network" in ran:
         c = calls["network"]
         sent_rec = _bracket_delta(rd, rd.net_series("tx_bytes"), c.t0, c.end(rd.t_end))
         sent = ran["network"]
         ok = sent_rec is not None and sent is not None and abs(sent_rec - sent) <= NET_REL * sent
-        out.append(Check("network", ok, f"iperf3 sent {_mib(sent)}: recorded {_mib(sent_rec)} sent "
-                         f"(expect within ±{NET_REL:.0%})", sent, sent_rec))
+        out.append(Check("network_sent", ok, f"iperf3 sends {_mib(sent, 1)} to the peer", _mib(sent_rec, 1),
+                         f"within ±{NET_REL:.0%} of {_mib(sent, 1)}", label="network sent", expected=sent,
+                         measured=sent_rec, unit="bytes"))
     else:
-        out.append(Check("network", None, ran.get("network_skipped", "skipped")))
+        out.append(Check("network_sent", None, "iperf3 sends 10 MiB to the peer",
+                         ran.get("network_skipped", "not run"), label="network sent"))
 
     c = calls["pids"]
     pids = rd.series(("pids", "current"))
     p0, pk = _at(rd, pids, c.t0), _max_in(rd, pids, c.t0, c.end(rd.t_end))
     rise = None if p0 is None or pk is None else pk - p0
     ok = rise is not None and abs(rise - 50) <= PIDS_ABS
-    out.append(Check("pids", ok, f"50 background sleeps: recorded +{rise or 0:.0f} processes (expect 50 ±{PIDS_ABS})",
-                     50, rise))
+    out.append(Check("processes", ok, "start 50 background sleeps", "-" if rise is None else f"{rise:+.0f}",
+                     f"+{50 - PIDS_ABS}–{50 + PIDS_ABS}", label="processes", expected=50, measured=rise,
+                     unit="processes"))
     return out
 
 
@@ -214,6 +212,14 @@ def run_fidelity(image: str = "rprof-testbox", echo: Callable[[str], None] = pri
     net, box, peer = f"rprof-selftest-fid-{tag}", f"rprof-selftest-fid-{tag}", f"rprof-selftest-fidpeer-{tag}"
     ran: dict[str, Any] = {}
     runs_dir = state_dir() / "selftest" / tag
+    echo("")
+    echo("Fidelity: does rprof record usage correctly?")
+    echo(f"  rprof records a scratch container (image {image}) with a real measure-mode run at")
+    echo(f"  {HZ} samples a second, and runs workloads of known size in it as tool calls. It then reads")
+    echo("  the run's samples back with the code reports use, and compares them with the known sizes.")
+    echo("  Memory is the non-reclaimable memory rprof reports by default: page cache doesn't count.")
+    echo("")
+    echo(header("measurement", "recorded"))
     have_peer = run_cmd(["docker", "image", "inspect", "rprof-netpeer"], timeout=20).ok
     run = None
     try:
@@ -229,7 +235,7 @@ def run_fidelity(image: str = "rprof-testbox", echo: Callable[[str], None] = pri
             run.call("cpu", "stress-ng --cpu 2 --timeout 5s")
             ran["cpu"] = True
         else:
-            ran["cpu_skipped"] = f"skipped: only {idle:.1f} CPUs idle, need 2.5 for a 2-core workload"
+            ran["cpu_skipped"] = f"only {idle:.1f} CPUs idle, need 2.5"
         run.call("memory", "hog-mem 1G 3")
         time.sleep(2.5)                                   # the release check looks 2 s after exit
         run.call("io", "dd if=/dev/zero of=/var/tmp/rprof-io bs=1M count=512 oflag=direct status=none; "
@@ -247,7 +253,7 @@ def run_fidelity(image: str = "rprof-testbox", echo: Callable[[str], None] = pri
             except (ValueError, KeyError):
                 ran["network"] = None
         else:
-            ran["network_skipped"] = "skipped: rprof-netpeer image missing (docker build -t rprof-netpeer images/netpeer)"
+            ran["network_skipped"] = "rprof-netpeer image missing"
         run.call("pids", "for i in $(seq 50); do sleep 4 & done; sleep 1")
         time.sleep(0.5)
         rd = run.stop()
@@ -263,10 +269,9 @@ def run_fidelity(image: str = "rprof-testbox", echo: Callable[[str], None] = pri
         run_cmd(["docker", "network", "rm", net], timeout=30)
 
     for c in checks:
-        mark = {True: "ok  ", False: "FAIL", None: "skip"}[c.ok]
-        echo(f"{mark}  fidelity {c.name:<27} {c.detail}")
+        echo(c.line())
     if any(c.ok is False for c in checks):
-        echo(f"kept the run for inspection: {rd.dir}")
+        echo(f"  Kept the run for inspection: {rd.dir}")
     else:
         shutil.rmtree(runs_dir, ignore_errors=True)
     return {c.name: c.as_dict() for c in checks}

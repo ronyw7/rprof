@@ -254,7 +254,7 @@ rprof selftest [--quick] [--only PART] [--out FILE] [--image IMAGE]
 
 | Option | Description |
 | --- | --- |
-| `--quick` | Shorter enforcement workloads. About a minute in all. |
+| `--quick` | Shorter enforcement workloads |
 | `--only` | `enforcement` or `fidelity`: run one part and keep the other part's earlier results |
 | `--out` | Where to write the results. Default: `/var/lib/rprof/capabilities.json`. |
 | `--image` | The image the workloads run in. Default: `rprof-testbox`. Network checks also need `rprof-netpeer`. |
