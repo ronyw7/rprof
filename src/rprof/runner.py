@@ -433,7 +433,9 @@ class RunSession:
                         pass
                 self.events.emit("command_start", pid=self.child.pid, argv=o.command)
                 waiters.append(asyncio.create_task(self._wait_child(stop)))
-        end_t = o.duration if o.duration is not None else (None if o.command else self.profile.end())
+        # Without a command the run records until the target exits, --duration or a signal: the
+        # profile's defaults stay in force after its last segment.
+        end_t = o.duration
         if end_t is not None:
             waiters.append(asyncio.create_task(self._wait_until(end_t, stop)))
         waiters.append(asyncio.create_task(self._watch_target(stop)))
@@ -544,8 +546,10 @@ class RunSession:
         while not stop.is_set():
             await asyncio.sleep(1.0)
             if self.target is not None and not await loop.run_in_executor(None, self.target.cgroup.exists):
-                self.events.emit("error", code="target_gone", message=f"{self.target.cgroup.path} disappeared")
-                self.end_reason = "error"
+                # The container exited: a normal end. Its limits went with it, so nothing is restored.
+                self.events.emit("target_exit", cgroup=self.target.cgroup.path)
+                if self.end_reason not in ("signal", "command_exit"):
+                    self.end_reason = "target_exit"
                 stop.set()
 
     async def _stop_child(self) -> None:

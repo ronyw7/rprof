@@ -28,7 +28,7 @@ All times named `t`, `t0` or `t1` are seconds since the run started. Sizes are i
 | --- | --- |
 | `run_id`, `rprof_version`, `git_sha` | Which run, and which rprof produced it |
 | `started_at`, `ended_at`, `duration_s` | When the run started and ended |
-| `end_reason` | `command_exit`, `profile_end`, `duration`, `signal` or `error` |
+| `end_reason` | `command_exit`, `target_exit` (the target container stopped), `duration`, `signal` or `error` |
 | `write_errors` | Files rprof couldn't fully write, such as `samples.jsonl`, with the first error. Empty when all writes succeeded. |
 | `mode`, `harness`, `hz`, `command`, `protect` | The run's settings |
 | `host` | `hostname`, `kernel`, `docker_version`, `cgroup_driver`, `cpus`, `mem_bytes`, `swap_bytes` |
@@ -95,6 +95,7 @@ Each line is `{"t": ..., "type": ..., ...}`, in time order.
 | `protect`, `unprotect_child` | `pid`, `cmd` (and `ppid`) | A process is shielded from memory kills, or a child loses the shield it inherited |
 | `limits_hidden` | `pid`, `path` | `--hide-limits` masked `/sys/fs/cgroup` in a container |
 | `signal` | `signal` | rprof receives Ctrl-C or `SIGTERM` |
+| `target_exit` | `cgroup` | The target's cgroup disappeared, for example because its container stopped. This ends the run. |
 | `run_end` | `reason`, `exit_code`, `restore_errors`, `apply_ms_p95`, `sampler_overruns` | The run ends |
 | `warning`, `error` | `code`, `message` | Something went wrong. See below. |
 
@@ -113,7 +114,6 @@ Warning and error codes:
 | `ip6tables_unavailable` | IPv6 partition rules couldn't be installed |
 | `protect_failed` | A process couldn't be shielded from memory kills |
 | `self_cgroup` | rprof couldn't move itself into its own cgroup |
-| `target_gone` | The target disappeared during the run |
 | `fidelity_failed` | The host's selftest found measurements off for some checks, so recorded numbers may be wrong |
 | `write_failed` | Some lines couldn't be written to `samples.jsonl`. The message gives the count and the first error. |
 | `sampler_stuck` | The sampling thread didn't stop within 10 s at the end of the run, so the final sample was skipped |
@@ -144,7 +144,7 @@ boundary passes.
 | `memory_basis` | Which memory the memory rows count: `non_reclaimable`, `non_reclaimable_without_shmem` or `total`. See [Which memory counts](../guides/results.md#which-memory-counts). |
 | `segments` | One entry per segment, starting with segment 0 (defaults only), as below |
 | `calls` | One entry per tool call, as below |
-| `summary` | `calls`, `failed`, `no_effect_segments`, `apply_ms_p95`, `warnings` |
+| `summary` | `calls`, `failed`, `no_effect_segments`, `apply_ms_p95`, `warnings`, and for the whole run `peak_memory_bytes` (`non_reclaimable` and `total`) and `oom_kills` |
 | `warnings` | Every warning and error event |
 
 Each entry in `segments`:

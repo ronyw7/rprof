@@ -40,5 +40,6 @@ markers = [
     "integration: needs root, Docker and cgroup v2",
     "e2e: end-to-end scripted agent",
     "slow: takes more than a minute",
+    "harbor: runs real Harbor trials (needs the harbor CLI, root and Docker)",
 ]
 addopts = "-ra"

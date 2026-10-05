@@ -178,3 +178,29 @@ def test_inside_harness(tmp_path):
         assert (run_dir / "token").stat().st_mode & 0o777 == 0o600 or os.environ.get("SUDO_UID")
     finally:
         sb.rm()
+
+
+def test_attached_run_records_past_the_last_segment_until_the_container_exits(tmp_path):
+    """No command: the run outlives the profile, keeps its defaults in force, and ends cleanly
+    when the container stops (how `rprof run` is attached to a container another tool started)."""
+    sb = Sandbox(f"rprof-it-exit-{os.getpid()}", cmd=["sleep", "8"])
+    try:
+        p = tmp_path / "p.yaml"
+        p.write_text(yaml.safe_dump({"version": 1, "name": "exit", "defaults": {"mem": {"max": "1Gi"}},
+                                     "segments": [{"from": 1, "to": 3, "mem": {"max": "2Gi"}}]}))
+        r = subprocess.run(RPROF + ["run", "--target", f"docker:{sb.name}", "--profile", str(p),
+                                    "--runs-dir", str(tmp_path / "runs"), "--view-dir", str(tmp_path / "view")],
+                           cwd=ROOT, capture_output=True, text=True, timeout=60)
+        assert r.returncode == 0, r.stderr
+        run = next((tmp_path / "runs").iterdir())
+        meta = json.loads((run / "meta.json").read_text())
+        assert meta["end_reason"] == "target_exit"
+        assert 5 < meta["duration_s"] < 10                      # past the segment's end at 3 s
+        events = [json.loads(x) for x in (run / "events.jsonl").read_text().splitlines()]
+        back = [e for e in events if e["type"] == "segment_applied" and e["boundary"] == 3]
+        assert back and back[0]["limits"]["mem"]["max"] == 1 << 30   # the defaults, after the segment
+        assert any(e["type"] == "target_exit" for e in events)
+        assert not any(e["type"] == "error" for e in events)
+        assert (run / "report.json").exists()
+    finally:
+        sb.rm()

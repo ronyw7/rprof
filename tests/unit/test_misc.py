@@ -57,3 +57,9 @@ def test_test_file_names_are_unique():
     from pathlib import Path
     names = Counter(p.name for p in (Path(__file__).parents[1]).rglob("test_*.py"))
     assert [n for n, k in names.items() if k > 1] == []
+    # The integration tests import their conftest.py by name (`from conftest import ...`). Another
+    # conftest.py that pytest loads first, such as one for a folder given on the command line with
+    # them, shadows it. tests/unit's is collected after them; put fixtures for new folders elsewhere.
+    tests = Path(__file__).parents[1]
+    assert sorted(str(p.relative_to(tests)) for p in tests.rglob("conftest.py")) == [
+        "integration/conftest.py", "unit/conftest.py"]

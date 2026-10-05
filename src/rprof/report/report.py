@@ -99,6 +99,9 @@ def build_report(rd: RunData, thresholds: Thresholds | None = None,
                 for e in rd.events if e.get("type") in ("warning", "error")]
     applies = [e for e in rd.events if e.get("type") == "segment_applied" and e.get("changed")]
     ms = sorted(e.get("apply_ms", 0) for e in applies if e.get("enforced"))
+    peaks = {b: max((v for v in rd.mem_series(b)[0] if v is not None), default=None)
+             for b in ("non_reclaimable", "total")}
+    kills = [v for v in rd.series(("mem", "events", "oom_kill")) if v is not None]
     return {
         "run_id": rd.run_id, "mode": rd.mode, "profile": rd.profile.name, "t_end": round(rd.t_end, 3),
         "samples": len(rd.samples), "thresholds": th.__dict__,
@@ -107,7 +110,10 @@ def build_report(rd: RunData, thresholds: Thresholds | None = None,
         "summary": {"calls": len(rd.calls), "failed": sum(c.failed for c in rd.calls),
                     "no_effect_segments": [s["segment"] for s in segs if s["no_effect"]],
                     "apply_ms_p95": ms[int(round(0.95 * (len(ms) - 1)))] if ms else None,
-                    "warnings": len(warnings)},
+                    "warnings": len(warnings),
+                    # Whole-run numbers, with or without limits: what an experiment's results table needs.
+                    "peak_memory_bytes": {b: None if v is None else int(v) for b, v in peaks.items()},
+                    "oom_kills": int(kills[-1] - kills[0]) if kills else None},
         "warnings": warnings,
     }
 
@@ -152,6 +158,10 @@ def render_md(rep: dict, meta: dict | None = None) -> str:
     s = rep["summary"]
     L.append(f"- tool calls: {s['calls']} ({s['failed']} failed); apply p95: {s['apply_ms_p95']} ms; "
              f"warnings/errors: {s['warnings']}")
+    pk = s.get("peak_memory_bytes") or {}
+    if pk.get("non_reclaimable") is not None:
+        L.append(f"- peak memory: {fmt_bytes(pk['non_reclaimable'])} without page cache, "
+                 f"{fmt_bytes(pk['total'])} with it; OOM kills: {s.get('oom_kills')}")
     if s["no_effect_segments"]:
         L.append(f"- **no effect** in segments {', '.join(map(str, s['no_effect_segments']))}: "
                  "nothing bound there, so those levels tested nothing")

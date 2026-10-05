@@ -1,5 +1,5 @@
-# Unit tests on every push. Integration and end-to-end tests run as root on a GitHub-hosted
-# Ubuntu VM (cgroup v2, standard Docker). Tests marked `timing` are skipped there: their
+# Unit tests on every push. Integration, end-to-end and Harbor tests run as root on a
+# GitHub-hosted Ubuntu VM (cgroup v2, standard Docker). Tests marked `timing` are skipped there: their
 # pass bands assume a quiet, dedicated machine. Run them on the experiment host:
 #   sudo env PYTHONDONTWRITEBYTECODE=1 .venv/bin/pytest -p no:cacheprovider tests/integration tests/e2e
 
@@ -51,7 +51,10 @@ jobs:
           docker build -t rprof-testbox images/testbox
           docker build -t rprof-netpeer images/netpeer
           docker pull postgres:16-alpine
-      - name: Integration and end-to-end tests, except timing-sensitive ones
+      - name: Install Harbor, for tests/harbor
+        run: uv tool install harbor
+      - name: Integration, end-to-end and Harbor tests, except timing-sensitive ones
         run: >
-          sudo env PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest
-          tests/integration tests/e2e -m "not timing" -p no:cacheprovider -ra
+          sudo env PYTHONDONTWRITEBYTECODE=1 RPROF_HARBOR=$(command -v harbor) RPROF_REQUIRE_HARBOR=1
+          .venv/bin/python -m pytest
+          tests/integration tests/e2e tests/harbor -m "not timing" -p no:cacheprovider -ra

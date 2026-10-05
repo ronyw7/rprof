@@ -170,8 +170,9 @@ rprof run --target TARGET [--profile PROFILE] [OPTIONS] [-- COMMAND ...]
 | `--hide-limits` | Mount a stand-in over `/sys/fs/cgroup` in the sandbox, so it can't read its real limits. See [Hide the limits from the sandbox](../guides/limits.md#hide-the-limits-from-the-sandbox). |
 
 With a command after `--`, rprof starts it once the first limits are in place, with
-`RPROF_RUN` set, and stops when it exits. Without a command, rprof stops when the last segment
-ends, after `--duration`, or on Ctrl-C.
+`RPROF_RUN` set, and stops when it exits. Without a command, rprof records until the target
+exits (a container stopping ends the run normally), until `--duration` passes, or until Ctrl-C.
+Either way, the profile's defaults stay in force after its last segment.
 
 rprof exits with the command's exit code, or with one of the [exit codes](#exit-codes) below.
 

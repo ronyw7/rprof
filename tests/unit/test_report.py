@@ -163,3 +163,11 @@ def test_write_reports(tmp_path):
 def test_not_a_run_dir(tmp_path):
     with pytest.raises(FileNotFoundError):
         RunData(tmp_path)
+
+
+def test_summary_has_whole_run_peak_memory_and_oom_kills(tmp_path):
+    for mode in ("enforce", "measure"):
+        (tmp_path / mode).mkdir()
+        s = build_report(RunData(make_run(tmp_path / mode, mode=mode)))["summary"]
+        assert s["peak_memory_bytes"] == {"non_reclaimable": 300 * MiB, "total": 300 * MiB}
+        assert s["oom_kills"] == 1
