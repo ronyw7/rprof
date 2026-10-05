@@ -14,7 +14,7 @@ CALLS = {"cpu": (1.0, 6.0), "memory": (6.5, 9.5), "io": (12.01, 12.09), "page_ca
          "network": (15.01, 15.09), "pids": (16.0, 17.0)}
 
 
-def make_run(tmp_path, io_bytes=512 * MiB, mem_rise=1024 * MiB, release=True):
+def make_run(tmp_path, io_bytes=512 * MiB, mem_rise=1024 * MiB, release=True, leftover=False):
     d = tmp_path / "run"
     d.mkdir()
     (d / "meta.json").write_text(json.dumps({"run_id": "f", "mode": "measure", "target": {"io_device": "8:0"}}))
@@ -33,6 +33,8 @@ def make_run(tmp_path, io_bytes=512 * MiB, mem_rise=1024 * MiB, release=True):
         wbytes = io_bytes if t >= 12.05 else 0          # a burst between two samples
         tx = 10 * MiB if t >= 15.05 else 0
         pids = 51 if 16.1 <= t <= 17.0 else 1
+        if leftover and 15.9 <= t <= 16.0:
+            pids = 6                                    # the previous call's processes, exiting
         rows.append({"t": t, "t_wall": "x", "segment": 0, "running_calls": [],
                      "cpu": {"usage_usec": int(usage)},
                      "mem": {"current": cur, "file": file, "shmem": 0, "events": {"oom_kill": 0}},
@@ -84,3 +86,8 @@ def test_results_carry_expected_observed_and_workload(tmp_path):
     d = checks["memory_peak"].as_dict()
     assert set(d) >= {"ok", "label", "expected", "observed", "workload", "detail", "measured", "unit"}
     assert isinstance(d["measured"], int)                          # bytes, rounded
+
+
+def test_processes_baseline_ignores_the_previous_calls_exit(tmp_path):
+    checks = {c.name: c for c in analyse(make_run(tmp_path, leftover=True), {"network": 10 * MiB})}
+    assert checks["processes"].ok is True and checks["processes"].measured == 50

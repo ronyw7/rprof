@@ -39,6 +39,7 @@ NET_REL = 0.03            # bytes sent within ±3% of what iperf3 reports
 PIDS_ABS = 3              # 50 processes ±3 (the shell running them counts too)
 ALIGN_SAMPLES = 2         # the memory rise shows up within 2 samples of tool_start...
 EXEC_SLACK_S = 0.25       # ...plus docker exec start-up
+IDLE_GAP_S = 0.5          # quiet time before the processes call; its baseline is the lowest count in it
 
 
 def idle_cores(window_s: float = 0.5) -> float:
@@ -108,6 +109,16 @@ def _bracket_delta(rd: RunData, ys: list, t0: float, t1: float) -> float | None:
     if not before or not after:
         return None
     return after[0] - before[-1]
+
+
+def _idle_before(rd: RunData, ys: list, t: float, window: float = IDLE_GAP_S) -> float | None:
+    """The lowest value in the ``window`` before ``t``: the container at rest before a call.
+
+    Not the value at ``t``: a sample taken while the previous call's processes were still exiting
+    would raise it, and interpolating towards the next sample would mix in this call's start.
+    """
+    vals = [ys[i] for i in range(len(rd.t)) if t - window <= rd.t[i] <= t and ys[i] is not None]
+    return min(vals) if vals else _at(rd, ys, t)
 
 
 def _max_in(rd: RunData, ys: list, t0: float, t1: float) -> float | None:
@@ -200,7 +211,7 @@ def analyse(rd: RunData, ran: dict[str, Any]) -> list[Check]:
 
     c = calls["pids"]
     pids = rd.series(("pids", "current"))
-    p0, pk = _at(rd, pids, c.t0), _max_in(rd, pids, c.t0, c.end(rd.t_end))
+    p0, pk = _idle_before(rd, pids, c.t0), _max_in(rd, pids, c.t0, c.end(rd.t_end))
     rise = None if p0 is None or pk is None else pk - p0
     ok = rise is not None and abs(rise - 50) <= PIDS_ABS
     out.append(Check("processes", ok, f"+{50 - PIDS_ABS}–{50 + PIDS_ABS}", "-" if rise is None else f"{rise:+.0f}",
@@ -252,6 +263,7 @@ def run_fidelity(image: str = "rprof-testbox", rep: Reporter | None = None) -> d
                 ran["network"] = None
         else:
             ran["network_skipped"] = "the rprof-netpeer image is missing: docker build -t rprof-netpeer images/netpeer"
+        time.sleep(IDLE_GAP_S)                            # the previous call's processes exit
         run.call("pids", "for i in $(seq 50); do sleep 4 & done; sleep 1")
         time.sleep(0.5)
         rd = run.stop()
