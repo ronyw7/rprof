@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: ["3.11", "3.12", "3.13"]
+        python: ["3.11", "3.12"]   # the oldest supported, and the one the experiment host runs
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7

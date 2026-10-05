@@ -48,3 +48,12 @@ def test_swap_unlimited_is_not_a_limit():
     p = profile_from_dict({"version": 1, "name": "x", "visibility": "current",
                            "defaults": {"mem": {"swap_max": "max"}}})
     assert AgentView(p).text(1).splitlines()[1] == "now:  no limits"
+
+
+def test_test_file_names_are_unique():
+    """pytest's default import mode can't hold two test modules with the same name
+    (tests/unit and tests/integration are not packages), and a clash breaks plain `pytest`."""
+    from collections import Counter
+    from pathlib import Path
+    names = Counter(p.name for p in (Path(__file__).parents[1]).rglob("test_*.py"))
+    assert [n for n, k in names.items() if k > 1] == []

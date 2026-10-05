@@ -65,7 +65,7 @@ The integration and end-to-end tests need root, Docker, cgroup v2 and the test i
 (`docker build -t rprof-testbox images/testbox`, and the same for `images/netpeer`).
 `PYTHONDONTWRITEBYTECODE=1` stops root from leaving cache files that your user can't delete.
 
-CI (`.github/workflows/ci.yml`) runs the unit tests on Python 3.11 to 3.13, then the
+CI (`.github/workflows/ci.yml`) runs the unit tests on Python 3.11 and 3.12, then the
 integration and end-to-end tests as root on a GitHub-hosted Ubuntu VM. It skips tests marked
 `timing`, whose pass bands (measured CPU, bandwidth, latency, rprof's own overhead) assume a
 quiet, dedicated machine. Run the full suite, timing tests included, on the experiment host

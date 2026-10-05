@@ -38,7 +38,12 @@ def _resolve(target: str, **kw):
 @app.callback(invoke_without_command=True)
 def _main(version: bool = typer.Option(False, "--version", help="Print the version and exit."),
           verbose: bool = typer.Option(False, "--verbose", "-v", help="Debug logging to stderr.")):
-    logging.basicConfig(level=logging.DEBUG if verbose else logging.WARNING, format="%(levelname)s %(message)s")
+    level = logging.DEBUG if verbose else logging.WARNING
+    logging.basicConfig(level=level, format="%(levelname)s %(message)s")
+    # rprof's logger runs at DEBUG during a run so rprof.log gets everything; records reach the
+    # console handler through propagation, so the console needs its own level.
+    for h in logging.getLogger().handlers:
+        h.setLevel(level)
     if version:
         typer.echo(f"rprof {__version__}")
         raise typer.Exit(0)
@@ -357,16 +362,21 @@ def plot(run_dir: Path = typer.Argument(..., exists=True, file_okay=False),
 
 
 @app.command()
-def selftest(quick: bool = typer.Option(False, "--quick", help="About 10 enforcement checks, ~2 min."),
+def selftest(quick: bool = typer.Option(False, "--quick", help="Shorter enforcement workloads; about 2 minutes in all."),
              out: Optional[Path] = typer.Option(None, "--out", help="capabilities.json path "
                                                 "(default /var/lib/rprof/capabilities.json)."),
-             image: str = typer.Option("rprof-testbox", "--image", help="Image for the network checks.")):
-    """Host fidelity and enforcement checks; writes capabilities.json."""
+             image: str = typer.Option("rprof-testbox", "--image", help="Image the workloads run in."),
+             only: Optional[str] = typer.Option(None, "--only", help="enforcement or fidelity")):
+    """Check that limits bite (enforcement) and that measurements are right (fidelity); writes capabilities.json."""
+    from .selftest import PARTS
     from .selftest import selftest as do_selftest
     from .util import is_root
+    if only is not None and only not in PARTS:
+        typer.echo(f"rprof: --only must be one of {', '.join(PARTS)}", err=True)
+        raise typer.Exit(2)
     if not is_root():
         _die(RprofError("selftest needs root", 72))
-    caps, ok = do_selftest(quick=quick, out=out, image=image, echo=typer.echo)
+    caps, ok = do_selftest(quick=quick, out=out, image=image, echo=typer.echo, only=only)
     raise typer.Exit(0 if ok else 1)
 
 

@@ -210,6 +210,15 @@ class RunSession:
                 if isinstance(v, dict) and v.get("ok") is False and caps.get(k) is None:
                     caps[k] = f"failed selftest: {v.get('detail', '')}".strip()
         self.caps = caps
+        failed_fid = sorted(k for k, v in ((self.selftest or {}).get("fidelity") or {}).items()
+                            if isinstance(v, dict) and v.get("ok") is False)
+        if failed_fid:
+            # Recorded numbers may be wrong on this host: say so, but don't refuse to run.
+            msg = ("rprof selftest found that measurements are off on this host for: " + ", ".join(failed_fid)
+                   + ". See `rprof selftest --only fidelity`.")
+            self.events.emit("warning", code="fidelity_failed", message=msg)
+            if not o.quiet:
+                print(f"rprof: warning: {msg}", file=sys.stderr)
         bad = {k: caps[k] for k in sorted(used) if caps.get(k)}
         if bad and self.mode == "enforce":
             msg = "; ".join(f"{k}: {r}" for k, r in bad.items())

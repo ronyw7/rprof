@@ -1,14 +1,18 @@
-"""``rprof selftest``: host fidelity and enforcement checks -> ``capabilities.json``.
+"""``rprof selftest``: host enforcement and fidelity checks -> ``capabilities.json``.
 
-Checks run against a scratch ``rprof-testbox`` container (and an ``rprof-netpeer``
-for network knobs) through rprof's own controllers, so they exercise the same code
-path as ``run``. Every run copies capabilities.json into its meta.json, and ``run``
-refuses knobs that failed here unless given ``--allow-degraded``.
+Enforcement: each knob is applied to a scratch ``rprof-testbox`` container (with an
+``rprof-netpeer`` for network knobs) through rprof's own controllers, and a workload checks
+that the limit bites. Fidelity (``rprof.fidelity``): workloads with a known footprint run
+as tool calls in a short measure-mode run, and what rprof recorded is compared with it.
+
+Every run copies capabilities.json into its meta.json. ``run`` refuses knobs that failed
+enforcement unless given ``--allow-degraded``, and warns if a fidelity check failed.
 """
 
 from __future__ import annotations
 
 import datetime as _dt
+import json
 import platform
 import socket
 import time
@@ -80,8 +84,43 @@ def _cores(box: Box, cmd: str, secs: float) -> float:
     return (box.stat("cpu.stat")["usage_usec"] - a) / 1e6 / (time.monotonic() - t0)
 
 
+PARTS = ("enforcement", "fidelity")
+
+
 def selftest(quick: bool = True, out: Path | None = None, image: str = "rprof-testbox",
-             echo: Callable[[str], None] = print) -> tuple[dict, bool]:
+             echo: Callable[[str], None] = print, only: str | None = None) -> tuple[dict, bool]:
+    """Run the checks and write capabilities.json; returns (capabilities, all passed).
+
+    ``only`` runs one part ("enforcement" or "fidelity") and keeps the other part's results
+    from an existing capabilities.json.
+    """
+    if only is not None and only not in PARTS:
+        raise ValueError(f"--only must be one of {', '.join(PARTS)}")
+    if not run_cmd(["docker", "image", "inspect", image], timeout=20).ok:
+        echo(f"image {image} not found: build it with `docker build -t {image} images/testbox`")
+        return {}, False
+    path = Path(out) if out else state_dir() / "capabilities.json"
+    try:
+        previous = json.loads(path.read_text()) if only else {}
+    except (OSError, ValueError):
+        previous = {}
+    knobs, features = previous.get("knobs", {}), previous.get("features", {})
+    fid = previous.get("fidelity", {})
+    if only in (None, "enforcement"):
+        knobs, features = _enforcement(quick, image, echo)
+    if only in (None, "fidelity"):
+        from .fidelity import run_fidelity
+        fid = run_fidelity(image, echo)
+    caps = {"rprof_version": __version__, "at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
+            "host": {"hostname": socket.gethostname(), "kernel": platform.release()},
+            "quick": quick, "knobs": knobs, "features": features, "fidelity": fid}
+    write_json(path, caps)
+    echo(f"wrote {path}")
+    ok = all(v["ok"] is not False for v in knobs.values()) and all(v["ok"] is not False for v in fid.values())
+    return caps, ok
+
+
+def _enforcement(quick: bool, image: str, echo: Callable[[str], None]) -> tuple[dict, dict]:
     tag = uuid.uuid4().hex[:6]
     secs = 3 if quick else 8
     knobs: dict[str, dict] = {}
@@ -92,10 +131,6 @@ def selftest(quick: bool = True, out: Path | None = None, image: str = "rprof-te
         for n in names if isinstance(names, (list, tuple)) else [names]:
             knobs[n] = {"ok": ok, "detail": detail}
         echo(f"{'ok  ' if ok else ('FAIL' if ok is False else 'skip')}  {', '.join(names) if isinstance(names, (list, tuple)) else names:<36} {detail}")
-
-    if not run_cmd(["docker", "image", "inspect", image], timeout=20).ok:
-        echo(f"image {image} not found: build it with `docker build -t {image} images/testbox`")
-        return {}, False
 
     box = Box(image, f"rprof-selftest-{tag}", data_mb=256)
     net = f"rprof-selftest-{tag}"
@@ -243,14 +278,7 @@ def selftest(quick: bool = True, out: Path | None = None, image: str = "rprof-te
 
     features["psi"] = Path("/proc/pressure/cpu").exists()
     features["swap_bytes"] = swap_total
-    caps = {"rprof_version": __version__, "at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
-            "host": {"hostname": socket.gethostname(), "kernel": platform.release()},
-            "quick": quick, "knobs": knobs, "features": features}
-    path = Path(out) if out else state_dir() / "capabilities.json"
-    write_json(path, caps)
-    echo(f"wrote {path}")
-    ok = all(v["ok"] is not False for v in knobs.values())
-    return caps, ok
+    return knobs, features
 
 
 __all__ = ["selftest"]

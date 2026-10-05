@@ -38,7 +38,7 @@ All times named `t`, `t0` or `t1` are seconds since the run started. Sizes are i
 | `hide_limits`, `hidden_limits` | Whether `--hide-limits` was given, and the containers it masked |
 | `degraded_knobs` | Knobs skipped because of `--allow-degraded` |
 | `knob_capabilities` | For each knob, `null` if the host can enforce it, or the reason it can't |
-| `capabilities` | A copy of the host's selftest results, if any |
+| `capabilities` | A copy of the host's selftest results, if any: `knobs` (enforcement) and `fidelity`, each `{check: {ok, detail}}` |
 | `features` | Kernel features found during the run, such as `memory_peak_reset` |
 
 ## samples.jsonl
@@ -114,6 +114,7 @@ Warning and error codes:
 | `protect_failed` | A process couldn't be shielded from memory kills |
 | `self_cgroup` | rprof couldn't move itself into its own cgroup |
 | `target_gone` | The target disappeared during the run |
+| `fidelity_failed` | The host's selftest found measurements off for some checks, so recorded numbers may be wrong |
 | `write_failed` | Some lines couldn't be written to `samples.jsonl`. The message gives the count and the first error. |
 | `sampler_stuck` | The sampling thread didn't stop within 10 s at the end of the run, so the final sample was skipped |
 | `command_failed` | The command after `--` couldn't start |

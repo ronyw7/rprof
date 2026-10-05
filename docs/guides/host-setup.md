@@ -41,8 +41,17 @@ sudo rprof doctor --target docker:sbx
 Each line starts with `ok`, `warn` or `FAIL`. `--deep` also runs quick tests that set limits on
 a scratch cgroup and confirm the kernel enforces them.
 
-`selftest` goes further. It starts test containers, applies every knob, runs a workload under
-each one, and checks the result. It takes about two minutes and needs the test images:
+`selftest` goes further. It starts test containers and checks two things:
+
+- **Enforcement:** each limit works. rprof applies every knob to a scratch container, runs a
+  workload under it, and checks that the limit bites.
+- **Fidelity:** the measurements are right. rprof runs workloads with a known footprint as
+  tool calls in a short measure-mode run, then compares what it recorded with what the
+  workloads did: 2 busy cores, 1 GiB of memory, a 512 MiB direct write, reading a 512 MiB file
+  (page cache must not count as memory in use), a 10 MiB transfer, and 50 processes. The numbers
+  come from the run's `samples.jsonl` and events, through the same code that builds reports.
+
+It takes about a minute and needs the test images:
 
 ```bash
 docker build -t rprof-testbox images/testbox
@@ -51,17 +60,29 @@ sudo rprof selftest --quick
 ```
 
 ```text
-ok    cpu.cores, cpu.period    stress-ng --cpu 2 under 0.5 cores: 0.49 cores
-ok    mem.max                  hog-mem 256M under 128Mi: exit 137, oom_kill +1, container alive
-ok    net.rate                 iperf3 under 10mbit: 9.56 Mbit/s
+ok    cpu.cores, cpu.period                stress-ng --cpu 2 under 0.5 cores: 0.50 cores
+ok    mem.max                              hog-mem 256M under 128Mi: exit 137, oom_kill +1, container alive
+ok    net.rate                             iperf3 under 10mbit: 9.56 Mbit/s
+...
+ok    fidelity cpu                         stress-ng --cpu 2: recorded 2.00 cores (expect 2.00 ±10%)
+ok    fidelity memory                      hog-mem 1G: the call's recorded peak is 1025 MiB above baseline (expect 1024 MiB ±10%; basis non_reclaimable)
+ok    fidelity io                          dd 512 MiB direct: recorded 512 MiB written on 8:0 (expect 512 MiB ±2%)
+ok    fidelity network                     iperf3 sent 10 MiB: recorded 10 MiB sent (expect within ±3%)
 ...
 wrote /var/lib/rprof/capabilities.json
 ```
 
+`--only enforcement` or `--only fidelity` runs one part and keeps the other part's earlier
+results. The CPU fidelity check is skipped if fewer than 2.5 CPUs are idle. If a fidelity check
+fails, rprof keeps that check's run directory and prints its path, so you can look at the
+samples.
+
 rprof saves the results in `/var/lib/rprof/capabilities.json` and copies them into every
 run's `meta.json`, so you can compare results from different hosts. `rprof run` refuses to use
-a knob that failed the selftest and exits with code 73. To run anyway without that knob, pass
-`--allow-degraded`. Run the selftest again after any kernel or Docker upgrade.
+a knob that failed enforcement and exits with code 73. To run anyway without that knob, pass
+`--allow-degraded`. If a fidelity check failed, `run` still runs but prints a warning and logs a
+`fidelity_failed` event, because the recorded numbers may be off. Run the selftest again after
+any kernel or Docker upgrade.
 
 ## Launch a sandbox
 

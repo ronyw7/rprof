@@ -244,18 +244,20 @@ rprof plot RUN_DIR [-o FILE]
 
 ## selftest
 
-Starts test containers, applies each knob, runs a workload under it, and checks the result.
-Writes the results for `rprof run` to check against.
+Checks, in test containers, that each limit works (enforcement) and that rprof's measurements
+of known workloads are right (fidelity). Writes the results for `rprof run` to check against.
+See [Check the host](../guides/host-setup.md#check-the-host).
 
 ```text
-rprof selftest [--quick] [--out FILE] [--image IMAGE]
+rprof selftest [--quick] [--only PART] [--out FILE] [--image IMAGE]
 ```
 
 | Option | Description |
 | --- | --- |
-| `--quick` | Short workloads. Takes about two minutes. |
+| `--quick` | Shorter enforcement workloads. About a minute in all. |
+| `--only` | `enforcement` or `fidelity`: run one part and keep the other part's earlier results |
 | `--out` | Where to write the results. Default: `/var/lib/rprof/capabilities.json`. |
-| `--image` | The test image. Default: `rprof-testbox`. Network checks also need `rprof-netpeer`. |
+| `--image` | The image the workloads run in. Default: `rprof-testbox`. Network checks also need `rprof-netpeer`. |
 
 Exits with 1 if any check fails.
 
