@@ -1,6 +1,6 @@
 [project]
 name = "rprof"
-version = "0.1.0"
+dynamic = ["version"]
 description = "OS resource profiles for sandboxed agents: apply time-varying cgroup/network/disk limits to a container and record what it used."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -22,8 +22,12 @@ rprof = "rprof.cli:main"
 dev = ["pytest>=8.0", "pytest-timeout>=2.3", "pytest-rerunfailures>=14.0"]
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
+
+# The version comes from git tags (see src/rprof/_version.py for the scheme).
+[tool.hatch.version]
+source = "vcs"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/rprof"]

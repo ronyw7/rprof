@@ -1,3 +1,5 @@
 """rprof: OS resource profiles for sandboxed agents."""
 
-__version__ = "0.1.0"
+from ._version import get_version
+
+__version__ = get_version()

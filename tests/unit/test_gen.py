@@ -17,7 +17,10 @@ def _valid(d):
     return profile_from_dict(yaml.safe_load(gen.dump(d)))
 
 
-def test_random_matches_golden_byte_for_byte():
+def test_random_matches_golden_byte_for_byte(monkeypatch):
+    # The same seed and the same rprof version give the same file. The version changes with
+    # every commit, so pin the one the golden file was made with.
+    monkeypatch.setattr(gen, "__version__", "0.1.0")
     r = CliRunner().invoke(app, ARGS)
     assert r.exit_code == 0, r.output
     assert r.stdout == GOLDEN.read_text()

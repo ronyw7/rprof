@@ -1039,7 +1039,6 @@ wheels = [
 
 [[package]]
 name = "rprof"
-version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "pydantic" },
@@ -1072,7 +1071,7 @@ requires-dist = [
     { name = "rich", specifier = ">=13.0" },
     { name = "typer", specifier = ">=0.12" },
 ]
-provides-extras = ["plot", "net"]
+provides-extras = ["net", "plot"]
 
 [package.metadata.requires-dev]
 dev = [

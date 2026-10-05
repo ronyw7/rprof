@@ -19,6 +19,8 @@ jobs:
         python: ["3.11", "3.12"]   # the oldest supported, and the one the experiment host runs
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0     # tags and history: rprof's version comes from git
       - uses: astral-sh/setup-uv@v7
       - run: uv sync --python ${{ matrix.python }}
       - run: uv run pytest tests/unit -q
@@ -29,6 +31,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@v7
       - run: uv sync --python 3.12
       - name: Show what the host supports

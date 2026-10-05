@@ -53,6 +53,21 @@ sudo rprof doctor
   [Python client](docs/reference/client.md), [control protocol](docs/reference/protocol.md),
   [run directory](docs/reference/run-directory.md).
 
+## Versions
+
+rprof's version comes from git, so every commit has its own and runs record exactly which code
+produced them (`rprof_version` in each run's `meta.json`, and `rprof --version`):
+
+| Checkout | Version |
+| --- | --- |
+| A release tag, `v0.1.0` | `0.1.0` |
+| 3 commits after `v0.1.0` | `0.1.1.dev3+g1a2b3c4d5` |
+| The same, with uncommitted changes | `0.1.1.dev3+g1a2b3c4d5.d20261005` |
+
+This is the scheme setuptools-scm uses. Running from a git checkout, rprof reads the version
+from git when it starts, so `git pull` updates it without reinstalling. To make a release, tag it
+and push the tag: `git tag -a v0.2.0 -m "rprof 0.2.0" && git push --tags`.
+
 ## Development
 
 ```bash
