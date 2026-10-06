@@ -6,7 +6,9 @@ the profile that is enforced. The profile's ``visibility`` decides how much is s
 gives the whole schedule, ``current`` only the limits at the start, ``none`` nothing.
 
 Disk bandwidth the profile doesn't limit is described as not throttled, with the native speed
-``rprof selftest`` measured on this host (``features.disk_bandwidth`` in capabilities.json).
+``rprof selftest`` measured on this host (``features.disk_bandwidth`` in capabilities.json). Swap is
+the smaller of what the profile allows and what the host has (``features.swap_bytes``), and is left
+out if the host's swap isn't known.
 """
 
 from __future__ import annotations
@@ -40,8 +42,10 @@ def _disk(lim: dict[str, Any], measured: dict | None) -> str:
     return "disk bandwidth that is not throttled"
 
 
-def resources(lim: dict[str, Any], measured: dict | None = None) -> str:
-    """The resources in force under ``lim`` (canonical knob values), as one phrase."""
+def resources(lim: dict[str, Any], features: dict | None = None) -> str:
+    """The resources in force under ``lim`` (canonical knob values), as one phrase. ``features`` are
+    the host's, from capabilities.json."""
+    features = features or {}
     full = K.defaults()
     full.update(lim)
     parts = []
@@ -58,13 +62,15 @@ def resources(lim: dict[str, Any], measured: dict | None = None) -> str:
         parts.append(mem)
     elif hi is not None:
         parts.append(f"{u.fmt_bytes(hi)} of memory before processes are slowed down")
-    if full.get("mem.swap_max"):
-        parts.append(f"{u.fmt_bytes(full['mem.swap_max'])} of swap")
+    if full.get("mem.swap_max") and features.get("swap_bytes"):
+        # An allowance beyond the host's swap isn't swap the agent can use.
+        swap = min(full["mem.swap_max"], features["swap_bytes"])
+        parts.append(f"{u.fmt_bytes(swap)} of swap")
     if full.get("pids.max") is not None:
         parts.append(f"at most {full['pids.max']} processes")
     if full.get("disk.capacity") is not None:
         parts.append(f"{u.fmt_bytes(full['disk.capacity'])} of disk space")
-    parts.append(_disk(full, measured))
+    parts.append(_disk(full, features.get("disk_bandwidth")))
     for knob in ("net.rate", "net.delay", "net.jitter", "net.loss", "net.partition"):
         d = K.describe(knob, full.get(knob))
         if d:
@@ -82,18 +88,18 @@ def describe(profile: Profile, capabilities: dict | None = None) -> str | None:
     """The text for ``profile``; None if its visibility is ``none``."""
     if profile.visibility == "none":
         return None
-    measured = ((capabilities or {}).get("features") or {}).get("disk_bandwidth")
+    features = (capabilities or {}).get("features") or {}
     intervals = profile.intervals()
     changes = profile.visibility == "full" and len(intervals) > 1
     if not changes:
-        text = f"Resource environment: your container has {resources(profile.limits_at(0.0), measured)}."
+        text = f"Resource environment: your container has {resources(profile.limits_at(0.0), features)}."
         if profile.visibility == "current" and len(intervals) > 1:
             text += " These limits may change while you work."
         return text + " Plan your work to fit within these limits."
     lines = ["Resource environment: your container's resources change over time. Time 0 is when you "
              "receive this task: run `date` now and keep track of the time."]
     for t0, t1 in intervals:
-        lines.append(f"- {_span(t0, t1)}: {resources(profile.limits_at(t0), measured)}.")
+        lines.append(f"- {_span(t0, t1)}: {resources(profile.limits_at(t0), features)}.")
     lines.append("Plan your work to fit within these limits.")
     return "\n".join(lines)
 

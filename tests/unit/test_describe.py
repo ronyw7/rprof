@@ -8,7 +8,8 @@ from rprof.cli import app
 from rprof.describe import describe
 from rprof.profile import profile_from_dict
 
-CAPS = {"features": {"disk_bandwidth": {"write_bps": 3.9e9, "read_bps": 4.4e9, "bytes": 1 << 32}}}
+CAPS = {"features": {"disk_bandwidth": {"write_bps": 3.9e9, "read_bps": 4.4e9, "bytes": 1 << 32},
+                     "swap_bytes": 2 << 30}}
 
 
 def _p(d):
@@ -87,3 +88,9 @@ def test_tell_agent_appends_the_description_to_harbors_command(monkeypatch, tmp_
     assert sess is None and seen["command"][:4] == ["harbor", "run", "-p", "t"]
     assert seen["command"][4] == "--extra-instruction"
     assert seen["command"][5].startswith("Resource environment: your container has 1 GiB of memory")
+
+
+def test_swap_is_what_the_host_can_actually_give():
+    p = _p({"visibility": "full", "defaults": {"mem": {"max": "48Gi", "swap_max": "48Gi"}}})
+    assert "2 GiB of swap" in describe(p, CAPS)          # the host has 2 GiB, not the allowance's 48
+    assert "swap" not in describe(p)                     # host swap unknown: left out
