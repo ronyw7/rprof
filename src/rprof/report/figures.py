@@ -234,16 +234,19 @@ def draw(ax, style: str, runs: list[RunData], labels: list[str], m: Metric, mark
         every = max(1, len(xs) // markers)
         ax.plot(xs, ys, label=label, markevery=(i * every // max(1, len(runs)), every),
                 **st["series"][i % len(st["series"])])
-    shared_ls = iter(("--", ":", "-.", (0, (5, 1, 1, 1))))
+    # Each limit is named by its knob, with a dash pattern of its own (mem.max dashed, mem.high dotted),
+    # in the limit colour when it holds for every run that enforced limits; one that holds for only some
+    # of them takes the run's colour and name.
+    enforced = [i for i, rd in enumerate(runs) if rd.mode == "enforce"]
+    order = [k for k, _ in m.knobs]
     for idx, knob, (xs, ys) in limits:
-        i = idx[0]
-        shared = len(idx) > 1 or len(runs) == 1
-        if len(limits) == 1:
-            name, kw = "Limit", dict(st["limit"])
-        elif shared:                                # one line for every run under it, in the limit colour
-            name, kw = knob, {**st["limit"], "ls": next(shared_ls, "--")}
+        k = order.index(knob)
+        ls = st["limit"]["ls"] if k == 0 else (":", "-.", (0, (5, 1, 1, 1)))[(k - 1) % 3]
+        if sorted(idx) == enforced:
+            name, kw = knob, {**st["limit"], "ls": ls}
         else:
-            name, kw = f"{labels[i]} {knob}", {**st["limit"], "color": st["series"][i]["color"]}
+            name = f"{', '.join(labels[i] for i in idx)} {knob}"
+            kw = {**st["limit"], "ls": ls, "color": st["series"][idx[0] % len(st["series"])]["color"]}
         ax.step(xs, ys, where="post", label=name, **kw)
     ax.set_xlabel("Time (s)")
     ax.set_ylabel(m.ylabel)
