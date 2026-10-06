@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import pwd
+import signal
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -88,6 +89,13 @@ def _cmdlines(pid: int) -> list[str]:
     return out
 
 
+def _trial_names(jobs: Path | None) -> set[str]:
+    """Trial directories in a Harbor job directory, ``<jobs>/<job>/<trial>``, lowercased as Compose does."""
+    if jobs is None or not jobs.is_dir():
+        return set()
+    return {d.name.lower() for d in jobs.glob("*/*__*") if d.is_dir()}
+
+
 @dataclass
 class Trial:
     container_id: str
@@ -110,6 +118,8 @@ class Launch:
     say: Callable[[str], None] = print
     proc: subprocess.Popen | None = None
     before: set[str] = field(default_factory=set)
+    jobs: Path | None = None                    # Harbor's job directory (-o), where its trial directory appears
+    trials_before: set[str] = field(default_factory=set)
 
     def start(self) -> None:
         if not self.command:
@@ -117,6 +127,8 @@ class Launch:
         env = dict(os.environ)
         env.setdefault("DOCKER_HOST", DEFAULT_DOCKER_HOST)    # the daemon rprof sees
         self.before = set(_main_containers())
+        self.jobs = jobs_dir(self.command, Path.cwd())
+        self.trials_before = _trial_names(self.jobs)
         try:
             self.proc = subprocess.Popen(self.command, **_as_invoking_user(env))
         except OSError as e:
@@ -133,11 +145,8 @@ class Launch:
         while found is None:
             if self.returncode() is not None:
                 return None
-            for cid, (name, project) in _main_containers().items():
-                if cid not in self.before and project.endswith("__env"):
-                    found = (cid, name, project)
-                    break
-            else:
+            found = self._my_container(time.monotonic() - t0)
+            if found is None:
                 time.sleep(poll_s)
         cid, name, project = found
         agent = agent_of(self.command)
@@ -160,20 +169,46 @@ class Launch:
                 return None                                   # the container stopped first
             time.sleep(poll_s)
 
+    def _my_container(self, waited_s: float) -> tuple[str, str, str] | None:
+        """The new trial container that belongs to this Harbor run, if it has appeared.
+
+        Several Harbor runs may start trials at once, so a new container is ours only if its
+        Compose project (``<trial>__env``) names a trial directory that appeared in our job
+        directory after we started. Parallel runs need their own ``-o`` directories.
+        """
+        new = {cid: v for cid, v in _main_containers().items() if cid not in self.before and v[1].endswith("__env")}
+        mine = _trial_names(self.jobs) - self.trials_before
+        if len(mine) > 1:
+            raise RprofError(f"{len(mine)} Harbor trials started in {self.jobs}; rprof follows one: give harbor "
+                             "one task and -k 1, and each parallel rprof run its own -o directory", 2)
+        for cid, (name, project) in new.items():
+            if project[: -len("__env")] in mine:
+                return cid, name, project
+        if not mine and self.jobs is not None and not self.jobs.exists() and len(new) == 1 and waited_s > 30:
+            # No job directory where we expected one (an unusual -o?): fall back to the only new trial.
+            self.say(f"rprof: Harbor's job directory {self.jobs} not found; following the only new trial")
+            cid, (name, project) = next(iter(new.items()))
+            return cid, name, project
+        return None
+
     def wait(self, timeout: float | None = None) -> int:
         assert self.proc is not None
         return self.proc.wait(timeout=timeout)
 
     def stop(self, grace_s: float = 60.0) -> int | None:
-        """Ask Harbor to stop (it removes its containers), then kill it if it doesn't."""
+        """Interrupt Harbor as Ctrl-C would (it then removes its containers); terminate it, then kill
+        it, if it doesn't stop."""
         if self.proc is None or self.proc.poll() is not None:
             return self.returncode()
-        self.proc.terminate()
-        try:
-            return self.proc.wait(grace_s)
-        except subprocess.TimeoutExpired:
-            self.proc.kill()
-            return self.proc.wait()
+        for sig, wait in ((signal.SIGINT, grace_s), (signal.SIGTERM, 15.0), (signal.SIGKILL, 15.0)):
+            try:
+                self.proc.send_signal(sig)
+                return self.proc.wait(wait)
+            except subprocess.TimeoutExpired:
+                continue
+            except ProcessLookupError:
+                break
+        return self.returncode()
 
 
 def jobs_dir(argv: list[str], cwd: Path) -> Path:

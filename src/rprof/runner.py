@@ -723,12 +723,20 @@ def _run_harbor(opts: RunOptions, profile: Profile | None) -> tuple[int, RunSess
     say = (lambda m: None) if opts.quiet else (lambda m: print(m, file=sys.stderr, flush=True))
     profile = profile or (load_profile(opts.profile) if opts.profile else unlimited_profile())
     launch = Launch(list(opts.command), agent_start=opts.agent_start, say=say)
-    launch.start()
+
+    def interrupted(signum, frame):
+        raise KeyboardInterrupt
+    # Until the run starts (and installs its own handlers), a signal must stop Harbor too, not orphan it.
+    previous = {s: signal.signal(s, interrupted) for s in (signal.SIGTERM, signal.SIGHUP)}
     try:
+        launch.start()
         trial = launch.find_trial()
     except BaseException:
         launch.stop()
         raise
+    finally:
+        for s, h in previous.items():
+            signal.signal(s, h)
     if trial is None:
         rc = launch.wait()
         say(f"rprof: harbor exited ({rc}) before its trial's agent started; nothing recorded")

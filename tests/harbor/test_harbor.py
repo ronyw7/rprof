@@ -12,6 +12,7 @@ import json
 import os
 import signal
 import subprocess
+import time
 
 import pytest
 
@@ -92,3 +93,34 @@ def test_profile_limits_replace_harbors_and_harbors_come_back(harbor_task, run_t
     assert limits(cid) == harbor                                   # Harbor's limits, swap included, are back
     assert trial.wait() == 0, trial.log()[-3000:]
     assert trial.reward() == "1"
+
+
+def test_parallel_runs_each_follow_their_own_trial(harbor_bin, harbor_task, workspace, tmp_path):
+    """Two `rprof run --target harbor` at once, each with its own -o: each attaches to its own trial."""
+    task = harbor_task("rprof-parallel", "sleep 20", cpus=2, memory_mb=1536)
+    procs = {}
+    for cond, mem in (("one", "1Gi"), ("two", "1280Mi")):
+        jobs = workspace / f"jobs-{cond}"
+        jobs.mkdir()
+        give_to_user(jobs)
+        p = tmp_path / f"{cond}.yaml"
+        p.write_text(f"version: 1\\nname: {cond}\\ndefaults: {{mem: {{max: {mem}}}}}\\n")
+        procs[cond] = (subprocess.Popen(
+            RPROF + ["run", "--target", "harbor", "--profile", str(p), "--runs-dir", str(tmp_path / "runs"),
+                     "--view-dir", str(tmp_path / f"view-{cond}"), "--",
+                     harbor_bin, "run", "-p", str(task), "-a", "oracle", "-o", str(jobs), "-y"],
+            cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True), jobs, mem)
+        time.sleep(1)
+    seen = set()
+    for cond, (proc, jobs, mem) in procs.items():
+        _, err = proc.communicate(timeout=600)
+        assert proc.returncode == 0, err[-3000:]
+        run = next((tmp_path / "runs").glob(f"*-{cond}"))
+        meta = json.loads((run / "meta.json").read_text())
+        own = {d.name.lower() for d in jobs.glob("*/*__*")}
+        assert meta["harbor"]["trial"] in own, (cond, meta["harbor"]["trial"], own)
+        seen.add(meta["harbor"]["container_id"])
+        limits = [e["limits"]["mem"]["max"] for e in map(json.loads, (run / "events.jsonl").read_text().splitlines())
+                  if e["type"] == "segment_applied"]
+        assert limits == [{"1Gi": 1 << 30, "1280Mi": 1280 << 20}[mem]]
+    assert len(seen) == 2

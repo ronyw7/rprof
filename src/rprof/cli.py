@@ -40,6 +40,10 @@ def _resolve(target: str, **kw):
 @app.callback(invoke_without_command=True)
 def _main(version: bool = typer.Option(False, "--version", help="Print the version and exit."),
           verbose: bool = typer.Option(False, "--verbose", "-v", help="Debug logging to stderr.")):
+    if os.geteuid() == 0 and not os.environ.get("DOCKER_HOST") and not os.environ.get("DOCKER_CONTEXT"):
+        # rprof controls the standard (rootful) daemon. Under `sudo -E` the invoking user's HOME, and
+        # with it their Docker config, is kept; its current context may be a rootless daemon.
+        os.environ["DOCKER_HOST"] = "unix:///var/run/docker.sock"
     level = logging.DEBUG if verbose else logging.WARNING
     logging.basicConfig(level=level, format="%(levelname)s %(message)s")
     # rprof's logger runs at DEBUG during a run so rprof.log gets everything; records reach the

@@ -180,3 +180,16 @@ def test_socket_and_sampler_survive_a_frozen_run_dir(sandbox, data_fs):
     assert max(gaps) < 0.5, f"sampling stalled for {max(gaps):.2f} s"
     assert len(read_jsonl(rp.run_dir / "samples.jsonl")) == len(rp.samples)   # nothing lost after the thaw
     assert not any(e["code"] == "write_failed" for e in rp.events("error"))
+
+
+def test_root_uses_the_standard_daemon_whatever_the_users_docker_config(sandbox, tmp_path):
+    """`sudo -E` keeps the user's HOME, whose Docker config may select a rootless daemon. rprof must
+    still find containers on the standard one."""
+    home = tmp_path / "home"
+    (home / ".docker").mkdir(parents=True)
+    (home / ".docker" / "config.json").write_text('{"currentContext": "elsewhere"}')
+    env = {k: v for k, v in os.environ.items() if k not in ("DOCKER_HOST", "DOCKER_CONTEXT")}
+    env["HOME"] = str(home)
+    r = subprocess.run(RPROF + ["inspect", "--target", f"docker:{sandbox.name}"], cwd=ROOT, env=env,
+                       capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, r.stderr
