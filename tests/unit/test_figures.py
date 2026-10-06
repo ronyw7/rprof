@@ -86,6 +86,10 @@ def test_runs_under_the_same_limits_share_one_line(tmp_path):
     lines = F._limits([RunData(a), RunData(b), RunData(c)], F.METRICS["memory"])
     assert [(idx, knob) for idx, knob, _ in lines] == [([0, 1], "mem.max"), ([2], "mem.max")]
     assert lines[0][2][0][-1] == pytest.approx(20.0)                      # drawn to the longer run's end
+    # Different CPU sets of the same size draw the same line.
+    x = make_run(tmp_path, "x", "enforce", {"cpu": {"cpus": "0-3"}})
+    y = make_run(tmp_path, "y", "enforce", {"cpu": {"cpus": "4-7"}})
+    assert len(F._limits([RunData(x), RunData(y)], F.METRICS["cpu"])) == 1
 
 
 def test_log_axis_only_when_peaks_and_limits_span_decades():

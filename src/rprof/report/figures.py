@@ -148,6 +148,13 @@ def binned(rd: RunData, m: Metric) -> tuple[list[float], list[float]]:
     return xs, ys
 
 
+def _drawn(v, knob: str):
+    if knob == "cpu.cpus" and v is not None:
+        from ..units import cpuset_size
+        return cpuset_size(v)
+    return v
+
+
 def _limits(runs: list[RunData], m: Metric) -> list[tuple[list[int], str, tuple[list, list]]]:
     """(indices of the runs, knob, step points) for each limit an enforce-mode run sets, one per
     distinct schedule: runs under the same profile share a line however long each ran."""
@@ -159,7 +166,9 @@ def _limits(runs: list[RunData], m: Metric) -> list[tuple[list[int], str, tuple[
             st = _limit_steps(rd, knob, scale)
             if not st:
                 continue
-            key = (knob, tuple((b, repr(rd.profile.limits_at(b).get(knob))) for b in (0.0, *rd.profile.boundaries())))
+            # Keyed by the value drawn: two different 8-CPU sets are the same line.
+            key = (knob, tuple((b, _drawn(rd.profile.limits_at(b).get(knob), knob))
+                               for b in (0.0, *rd.profile.boundaries())))
             if key not in out:
                 out[key] = ([i], knob, st)
                 continue
@@ -245,7 +254,7 @@ def draw(ax, style: str, runs: list[RunData], labels: list[str], m: Metric, mark
         if sorted(idx) == enforced:
             name, kw = knob, {**st["limit"], "ls": ls}
         else:
-            name = f"{', '.join(labels[i] for i in idx)} {knob}"
+            name = f"{knob} ({', '.join(labels[i] for i in idx)})"
             kw = {**st["limit"], "ls": ls, "color": st["series"][idx[0] % len(st["series"])]["color"]}
         ax.step(xs, ys, where="post", label=name, **kw)
     ax.set_xlabel("Time (s)")
