@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime as _dt
+import json
 import logging
 import logging.handlers
 import os
@@ -748,6 +749,25 @@ def _run_harbor(opts: RunOptions, profile: Profile | None) -> tuple[int, RunSess
         rc = launch.wait()
         if sess.end_reason == "target_exit" and code == 0:
             code = rc if rc >= 0 else 128 - rc
+    if sess.run_dir is not None:
+        from .harbor import keep_trial
+        try:
+            kept = keep_trial(launch, trial, sess.run_dir, Path.cwd())
+        except OSError as e:
+            kept = {"kept": None, "error": f"copying the Harbor trial failed: {e}"}
+        if kept.get("kept"):
+            say(f"rprof: kept Harbor's trial (agent logs, verifier, result) in {sess.run_dir / kept['kept']}")
+        else:
+            say(f"rprof: Harbor's trial directory wasn't found under {kept.get('jobs_dir')}; not kept")
+        try:
+            meta = json.loads((sess.run_dir / "meta.json").read_text())
+            meta.setdefault("harbor", {}).update(kept)
+            write_json(sess.run_dir / "meta.json", meta)
+        except (OSError, ValueError):
+            pass
+        owner = sudo_owner()
+        if owner and kept.get("kept"):
+            chown_tree(sess.run_dir / kept["kept"], *owner)     # like the rest of the run directory
     return code, sess
 
 

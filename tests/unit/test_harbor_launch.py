@@ -17,3 +17,14 @@ def test_known_agents_have_start_markers_and_inside_agents_are_protected():
     assert all(PROTECT[a] == AGENT_START[a] for a in PROTECT)    # protect the process that marks the start
     # Harbor checks the install with `claude --version`, which must not count as the agent starting.
     assert AGENT_START["claude-code"] not in "claude --version"
+
+
+def test_jobs_dir_and_trial_dir(tmp_path):
+    from rprof.harbor import find_trial_dir, jobs_dir
+    assert jobs_dir(["harbor", "run", "-o", "out"], tmp_path) == (tmp_path / "out").resolve()
+    assert jobs_dir(["harbor", "run", "--jobs-dir=/x/y"], tmp_path) == tmp_path.parent.joinpath("/x/y").resolve()
+    assert jobs_dir(["harbor", "run"], tmp_path) == (tmp_path / "jobs").resolve()
+    trial = tmp_path / "jobs" / "2026-10-05__19-24-29" / "external-sort__FirtDH5"
+    trial.mkdir(parents=True)
+    assert find_trial_dir(tmp_path / "jobs", "external-sort__firtdh5") == trial     # Compose lowercases it
+    assert find_trial_dir(tmp_path / "jobs", "other__abc") is None

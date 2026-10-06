@@ -176,4 +176,33 @@ class Launch:
             return self.proc.wait()
 
 
-__all__ = ["AGENT_START", "PROTECT", "Launch", "Trial", "agent_of"]
+def jobs_dir(argv: list[str], cwd: Path) -> Path:
+    """Where ``harbor run`` writes its job: ``-o``/``--jobs-dir``, else ``jobs`` in its working directory."""
+    for i, a in enumerate(argv):
+        if a in ("-o", "--jobs-dir") and i + 1 < len(argv):
+            return (cwd / argv[i + 1]).resolve()
+        if a.startswith("--jobs-dir="):
+            return (cwd / a.split("=", 1)[1]).resolve()
+    return (cwd / "jobs").resolve()
+
+
+def find_trial_dir(jobs: Path, trial: str) -> Path | None:
+    """The trial's directory, ``<jobs>/<job>/<trial>``; Compose lowercased the name rprof saw."""
+    found = [d for d in jobs.glob("*/*") if d.is_dir() and d.name.lower() == trial.lower()]
+    return max(found, key=lambda d: d.stat().st_mtime) if found else None
+
+
+def keep_trial(launch: Launch, trial: Trial, run_dir: Path, cwd: Path) -> dict:
+    """Copy the trial's directory (agent logs and trajectory, verifier output, result) into the run
+    directory, so each rprof run keeps what its agent did. Returns what to record in meta.json."""
+    import shutil
+    jobs = jobs_dir(launch.command, cwd)
+    src = find_trial_dir(jobs, trial.trial)
+    if src is None:
+        return {"trial_dir": None, "kept": None, "jobs_dir": str(jobs)}
+    dest = run_dir / "harbor-trial"
+    shutil.copytree(src, dest, symlinks=True, dirs_exist_ok=True)
+    return {"trial_dir": str(src), "kept": dest.name, "jobs_dir": str(jobs)}
+
+
+__all__ = ["AGENT_START", "PROTECT", "Launch", "Trial", "agent_of", "jobs_dir", "find_trial_dir", "keep_trial"]

@@ -159,10 +159,19 @@ The run directory is the usual one; see [Read the results](results.md). `meta.js
 | `agent`, `agent_start` | The agent from `-a`, and the command-line fragment that started the profile |
 | `waited_container_s`, `waited_agent_s` | How long rprof waited for the container, then for the agent |
 | `command` | The `harbor run` command line |
+| `trial_dir`, `kept` | Harbor's directory for the trial, and the copy of it in the run directory (`harbor-trial`) |
 
-Harbor's own results, including the reward and the agent's trajectory, stay in its job
-directory, `jobs/` by default or `-o DIR`. rprof can't see the agent's individual tool calls, so
-take failed commands from the trajectory.
+When Harbor finishes, rprof copies the trial's directory into the run directory as
+`harbor-trial/`, so each run keeps what its agent did next to what rprof measured:
+
+| In `harbor-trial/` | Holds |
+| --- | --- |
+| `agent/` | The agent's logs. For Terminus 2, its trajectory and terminal recording. |
+| `verifier/` | `reward.txt` and the tests' output |
+| `result.json`, `config.json`, `trial.log` | Harbor's result and settings for the trial, and its log |
+
+The original stays in Harbor's job directory, `jobs/` by default or `-o DIR`. rprof can't see the
+agent's individual tool calls, so take failed commands from the trajectory.
 
 ## Attach by hand
 

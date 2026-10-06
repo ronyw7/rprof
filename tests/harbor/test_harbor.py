@@ -49,6 +49,10 @@ def test_one_command_runs_a_harbor_trial_under_a_profile(harbor_bin, harbor_task
     trial_dirs = [d for d in jobs.glob("*/*") if d.name.lower() == h["trial"]]     # Compose lowercases it
     assert trial_dirs and (trial_dirs[0] / "verifier" / "reward.txt").read_text().strip() == "1"
     assert trial_dirs[0].stat().st_uid == int(os.environ.get("SUDO_UID", os.getuid()))   # Harbor ran as the user
+    # The run keeps a copy of the trial: agent logs, verifier output and result.
+    assert h["kept"] == "harbor-trial" and h["trial_dir"] == str(trial_dirs[0])
+    assert (run / "harbor-trial" / "verifier" / "reward.txt").read_text().strip() == "1"
+    assert (run / "harbor-trial" / "agent").is_dir() and (run / "harbor-trial" / "result.json").exists()
 
     events = [json.loads(x) for x in (run / "events.jsonl").read_text().splitlines()]
     assert [e["boundary"] for e in events if e["type"] == "segment_applied"] == [0, 1, 3]
