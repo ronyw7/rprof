@@ -158,7 +158,8 @@ rprof run --target TARGET [--profile PROFILE] [OPTIONS] [-- COMMAND ...]
 | `--name` | Label used in the run directory's name. Same rule as profile names: letters, digits, `.`, `_` and `-`, starting with a letter or digit, at most 64 characters. Default: the profile's name. |
 | `--harness` | `outside` or `inside` the sandbox. `inside` also opens a socket for the sandbox. Default: `outside`. |
 | `--protect` | Regular expression matched against process command lines. Matching processes are never chosen for memory kills. Repeatable. |
-| `--tell-agent` | With `--target harbor`: append `rprof describe` of the profile to the task's instruction (Harbor's `--extra-instruction`) |
+| `--tell-agent` | With `--target harbor`: give the agent `rprof describe` of the profile |
+| `--tell-via` | Where: `instruction` (default; Harbor's `--extra-instruction`) or `system-prompt` (Claude Code's system prompt, Harbor's `--ak append_system_prompt`) |
 | `--agent-start` | With `--target harbor`: start the profile when a process whose command line contains this appears in the container. Default: known for Harbor's `terminus-2`, `claude-code` and `oracle` agents. |
 | `--net` | `docker:<name>` whose network the `net` knobs apply to. Repeatable. Default: the target container. |
 | `--io-device` | The disk for I/O limits, as `MAJ:MIN` or `/dev/…` |
@@ -243,8 +244,8 @@ rprof timeline RUN_DIR [--json]
 Prints what an agent is told about its resources under a profile, in sentences: CPUs, memory,
 disk and any other limits, and for `visibility: full` each interval of the schedule. Disk
 bandwidth the profile doesn't limit is described as not throttled, with the speed `rprof selftest`
-measured. `rprof run --target harbor --tell-agent` appends exactly this text to the task's
-instruction.
+measured. `rprof run --target harbor --tell-agent` gives the agent exactly this text, in the task's
+instruction or (`--tell-via system-prompt`) the agent's system prompt.
 
 ```text
 rprof describe PROFILE [--capabilities FILE]

@@ -262,8 +262,10 @@ def run(target: str = RunTargetOpt,
         no_report: bool = typer.Option(False, "--no-report"),
         hide_limits: bool = typer.Option(False, "--hide-limits",
                                          help="Mask /sys/fs/cgroup in the sandbox so it can't read its limits."),
-        tell_agent: bool = typer.Option(False, "--tell-agent", help="With --target harbor: append `rprof describe` "
-                                        "of the profile to the task's instruction."),
+        tell_agent: bool = typer.Option(False, "--tell-agent", help="With --target harbor: tell the agent "
+                                        "`rprof describe` of the profile (where: --tell-via)."),
+        tell_via: str = typer.Option("instruction", "--tell-via", help="instruction: append it to the task's "
+                                     "instruction; system-prompt: to the agent's system prompt (claude-code)."),
         agent_start: Optional[str] = typer.Option(None, "--agent-start", help="With --target harbor: start the "
                                                   "profile when a process whose command line contains this appears "
                                                   "(default: known per Harbor agent)."),
@@ -280,7 +282,8 @@ def run(target: str = RunTargetOpt,
                       io_device=io_device, data_path=data_path, data_dir=data_dir, view_dir=view_dir,
                       ctl_dir=ctl_dir, allow_degraded=allow_degraded, duration=duration,
                       command=list(command or []), capabilities=capabilities, report=not no_report,
-                      hide_limits=hide_limits, agent_start=agent_start, tell_agent=tell_agent)
+                      hide_limits=hide_limits, agent_start=agent_start, tell_agent=tell_agent,
+                      tell_via=tell_via)
     try:
         code, sess = do_run(opts)
     except ProfileError as e:

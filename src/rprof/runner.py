@@ -70,7 +70,8 @@ class RunOptions:
     quiet: bool = False
     hide_limits: bool = False
     agent_start: str | None = None      # --target harbor: the agent's start marker, if not the known one
-    tell_agent: bool = False            # --target harbor: append `rprof describe` to the task's instruction
+    tell_agent: bool = False            # --target harbor: tell the agent `rprof describe` of the profile
+    tell_via: str = "instruction"       # where: the task's instruction, or the agent's system prompt
 
 
 def git_sha() -> str | None:
@@ -301,7 +302,8 @@ class RunSession:
         }
         if self.harbor is not None:
             meta["harbor"] = {**self.harbor[1].to_meta(), "command": self.harbor[0].command,
-                              "told_agent": getattr(self, "told_agent", None)}
+                              "told_agent": getattr(self, "told_agent", None),
+                              "told_via": o.tell_via if getattr(self, "told_agent", None) else None}
         self.meta = meta
         write_json(self.run_dir / "meta.json", meta)
 
@@ -717,6 +719,28 @@ def run(opts: RunOptions, profile: Profile | None = None) -> tuple[int, RunSessi
     return _run(RunSession(opts, profile))
 
 
+# Agents whose system prompt Harbor can append to, and the agent kwarg that does it.
+SYSTEM_PROMPT_KWARG = {"claude-code": "append_system_prompt"}
+
+
+def _tell_args(command: list[str], told: str, via: str) -> list[str]:
+    """``harbor run`` options that give the agent ``told``: appended to the task's instruction
+    (``--extra-instruction``), or to the agent's system prompt (``--ak append_system_prompt=…``)."""
+    from .harbor import agent_of
+    if via == "instruction":
+        return ["--extra-instruction", told]
+    if via != "system-prompt":
+        raise RprofError(f"--tell-via must be instruction or system-prompt, not {via!r}", 2)
+    agent = agent_of(command)
+    kwarg = SYSTEM_PROMPT_KWARG.get(agent or "")
+    if kwarg is None:
+        raise RprofError(f"--tell-via system-prompt: Harbor can't add to {agent or 'this agent'}'s system prompt "
+                         f"(only {', '.join(SYSTEM_PROMPT_KWARG)}); use --tell-via instruction", 2)
+    if any(a.startswith(kwarg + "=") for a in command):
+        raise RprofError(f"--tell-via system-prompt: the command already sets {kwarg}", 2)
+    return ["--ak", f"{kwarg}={told}"]
+
+
 def _run_harbor(opts: RunOptions, profile: Profile | None) -> tuple[int, RunSession | None]:
     """--target harbor: start Harbor, wait for its trial's agent to start, then run against its container."""
     import dataclasses
@@ -731,7 +755,7 @@ def _run_harbor(opts: RunOptions, profile: Profile | None) -> tuple[int, RunSess
         told = describe(profile, load_selftest_caps(opts.capabilities))
         if told is None:
             raise RprofError("--tell-agent: the profile's visibility is none, so there is nothing to tell", 2)
-        command += ["--extra-instruction", told]     # Harbor appends it to the task's instruction
+        command += _tell_args(command, told, opts.tell_via)
     launch = Launch(command, agent_start=opts.agent_start, say=say)
 
     def interrupted(signum, frame):

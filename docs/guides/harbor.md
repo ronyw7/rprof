@@ -137,11 +137,15 @@ rprof sets swap to 0 whenever it manages memory, unless told otherwise. Match Ha
 `defaults`, and use `swap_max: 0` inside a squeeze, so that memory over the limit is killed
 rather than swapped.
 
-**Tell the agent, if it should know.** `--tell-agent` appends `rprof describe` of the profile to
-the task's instruction, so every trial is told the same thing, in the same words, as is enforced:
+**Tell the agent, if it should know.** `--tell-agent` gives the agent `rprof describe` of the
+profile, so every trial is told the same thing, in the same words, as is enforced. By default it is
+appended to the task's instruction; `--tell-via system-prompt` appends it to Claude Code's system
+prompt instead (Harbor's `--ak append_system_prompt`), leaving the task's instruction as it is:
 
 ```bash
 sudo -E rprof run --target harbor --profile p.yaml --tell-agent -- harbor run ...
+sudo -E rprof run --target harbor --profile p.yaml --tell-agent --tell-via system-prompt -- \
+  harbor run -a claude-code ...
 rprof describe p.yaml            # to read it first
 ```
 
@@ -161,7 +165,7 @@ The run directory is the usual one; see [Read the results](results.md). `meta.js
 | `agent`, `agent_start` | The agent from `-a`, and the command-line fragment that started the profile |
 | `waited_container_s`, `waited_agent_s` | How long rprof waited for the container, then for the agent |
 | `command` | The `harbor run` command line |
-| `told_agent` | With `--tell-agent`, the text appended to the instruction |
+| `told_agent`, `told_via` | With `--tell-agent`, the text the agent was given, and where (`instruction` or `system-prompt`) |
 | `trial_dir`, `kept` | Harbor's directory for the trial, and the copy of it in the run directory (`harbor-trial`) |
 
 When Harbor finishes, rprof copies the trial's directory into the run directory as

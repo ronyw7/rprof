@@ -19,6 +19,12 @@ from . import knobs as K
 from . import units as u
 from .profile import Profile
 
+# Closes every description: what the agent should do with it, as in the agentic-host-os CompCert
+# experiment, with its list of steps made examples so it fits any task.
+CLOSING = ("Be aware of these resource limitations, and feel free to optimize how you carry out the task under "
+           "these circumstances. Optimize for the total end-to-end duration of the entire task (such as installing "
+           "dependencies, building, and verifying), given these resource limits.")
+
 IO_KNOBS = ("io.rbps", "io.wbps", "io.riops", "io.wiops")
 
 
@@ -95,12 +101,12 @@ def describe(profile: Profile, capabilities: dict | None = None) -> str | None:
         text = f"Resource environment: your container has {resources(profile.limits_at(0.0), features)}."
         if profile.visibility == "current" and len(intervals) > 1:
             text += " These limits may change while you work."
-        return text + " Be aware of these resources and plan your work around them."
+        return text + " " + CLOSING
     lines = ["Resource environment: your container's resources change over time. Time 0 is when you "
              "receive this task: run `date` now and keep track of the time."]
     for t0, t1 in intervals:
         lines.append(f"- {_span(t0, t1)}: {resources(profile.limits_at(t0), features)}.")
-    lines.append("Be aware of these resources and plan your work around them.")
+    lines.append(CLOSING)
     return "\n".join(lines)
 
 

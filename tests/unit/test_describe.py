@@ -5,7 +5,7 @@ from __future__ import annotations
 from typer.testing import CliRunner
 
 from rprof.cli import app
-from rprof.describe import describe
+from rprof.describe import CLOSING, describe
 from rprof.profile import profile_from_dict
 
 CAPS = {"features": {"disk_bandwidth": {"write_bps": 3.9e9, "read_bps": 4.4e9, "bytes": 1 << 32},
@@ -21,7 +21,7 @@ def test_a_fixed_budget_is_one_sentence():
     assert describe(p, CAPS) == (
         "Resource environment: your container has 8 CPUs, 2 GiB of memory (processes that go above it are "
         "killed) and disk bandwidth that is not throttled (about 3.9 GB/s write, 4.4 GB/s read). "
-        "Be aware of these resources and plan your work around them.")
+        + CLOSING)
 
 
 def test_without_a_measurement_the_disk_is_just_not_throttled():
@@ -29,7 +29,7 @@ def test_without_a_measurement_the_disk_is_just_not_throttled():
     assert describe(p) == (
         "Resource environment: your container has 1 GiB of memory (processes that go above it are killed; "
         "above 900 MiB they are slowed down) and disk bandwidth that is not throttled. "
-        "Be aware of these resources and plan your work around them.")
+        + CLOSING)
 
 
 def test_a_schedule_lists_each_interval_and_time_zero():
@@ -40,6 +40,7 @@ def test_a_schedule_lists_each_interval_and_time_zero():
     assert lines[1] == "- 0–400 s: 1 GiB of memory (processes that go above it are killed) and disk writes limited to 10 MiB/s."
     assert lines[2].startswith("- 400–1200 s: 48 GiB of memory") and "not throttled (about 3.9 GB/s write" in lines[2]
     assert lines[3].startswith("- after 1200 s: 1 GiB of memory")
+    assert lines[4] == CLOSING and "end-to-end duration" in CLOSING
 
 
 def test_visibility_decides_how_much_is_said():
@@ -88,6 +89,21 @@ def test_tell_agent_appends_the_description_to_harbors_command(monkeypatch, tmp_
     assert sess is None and seen["command"][:4] == ["harbor", "run", "-p", "t"]
     assert seen["command"][4] == "--extra-instruction"
     assert seen["command"][5].startswith("Resource environment: your container has 1 GiB of memory")
+
+
+def test_tell_via_system_prompt_uses_claude_codes_kwarg(tmp_path):
+    import pytest
+
+    from rprof.runner import _tell_args
+    from rprof.util import RprofError
+    cmd = ["harbor", "run", "-p", "t", "-a", "claude-code"]
+    assert _tell_args(cmd, "Resource environment: x", "system-prompt") == [
+        "--ak", "append_system_prompt=Resource environment: x"]
+    assert _tell_args(cmd, "x", "instruction") == ["--extra-instruction", "x"]
+    with pytest.raises(RprofError, match="oracle"):
+        _tell_args(["harbor", "run", "-a", "oracle"], "x", "system-prompt")
+    with pytest.raises(RprofError, match="already sets"):
+        _tell_args(cmd + ["--ak", "append_system_prompt=y"], "x", "system-prompt")
 
 
 def test_swap_is_what_the_host_can_actually_give():
