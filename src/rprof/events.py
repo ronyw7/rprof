@@ -68,6 +68,7 @@ class Call:
     mem_peak: float | None = None              # memory.current / memory.peak, page cache included
     mem_peak_nonreclaimable: float | None = None
     memory_limited: bool = False
+    lifetime_peak0: float | None = None        # the container's highest memory ever, at the call's start
 
     def see_memory(self, sample: dict) -> None:
         total, nr = memory_points(sample)
@@ -183,7 +184,8 @@ class ControlHandler:
         now = r.read_now()
         start = counters(now)
         lim = r.profile.limits_at(t)
-        call = Call(call_id, cmd, step, t, start, meta=meta, memory_limited=_memory_limited(r, lim))
+        call = Call(call_id, cmd, step, t, start, meta=meta, memory_limited=_memory_limited(r, lim),
+                    lifetime_peak0=(now.get("mem") or {}).get("lifetime_peak"))
         call.see_memory(now)
         with self.lock:
             if call_id in self.seen:
@@ -227,6 +229,10 @@ class ControlHandler:
         now = r.read_now()
         end = counters(now)
         call.see_memory(now)
+        life = (now.get("mem") or {}).get("lifetime_peak")
+        if life is not None and call.lifetime_peak0 is not None and life > call.lifetime_peak0:
+            # A new all-time high was reached during the call, perhaps between samples: it's the call's.
+            call.mem_peak = max(call.mem_peak or 0, life)
         lim = r.profile.limits_at(t)
         memory_limited = call.memory_limited or _memory_limited(r, lim)
         cause, evidence = attribute(call.start, end, call.min_free, float(dur), exit_code, timed_out,

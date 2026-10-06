@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import threading
 from typing import Any
 
 from ..target.cgroup import pick_flat, read_text
@@ -37,6 +38,7 @@ class MemoryController(Controller):
     def __init__(self, *a, **kw):
         super().__init__(*a, **kw)
         self._peak_fd: int | None = None
+        self._peak_lock = threading.Lock()   # the sampler resets the fd; reads between samples peek it
         self.peak_resettable: bool | None = None
 
     def capabilities(self):
@@ -87,10 +89,11 @@ class MemoryController(Controller):
             return None
         path = self.target.cgroup.file("memory.peak")
         try:
-            if self._peak_fd is None:
-                self._peak_fd = os.open(path, os.O_RDWR)
-            val = int(os.pread(self._peak_fd, 64, 0).split()[0])
-            os.write(self._peak_fd, b"reset\n")
+            with self._peak_lock:
+                if self._peak_fd is None:
+                    self._peak_fd = os.open(path, os.O_RDWR)
+                val = int(os.pread(self._peak_fd, 64, 0).split()[0])
+                os.write(self._peak_fd, b"reset\n")
             self.peak_resettable = True
             return val
         except (OSError, ValueError, IndexError):
@@ -104,13 +107,31 @@ class MemoryController(Controller):
                 self.peak_resettable = False
             return None
 
+    def peek_peak(self) -> int | None:
+        """The highest memory since the last sample, without resetting it (Linux 6.12+)."""
+        if not self.peak_resettable or self._peak_fd is None:
+            return None
+        with self._peak_lock:
+            try:
+                return int(os.pread(self._peak_fd, 64, 0).split()[0]) if self._peak_fd is not None else None
+            except (OSError, ValueError, IndexError):
+                return None
+
     def sample(self, out: dict, fc: FileCache) -> None:
         cg = self.target.cgroup
         cur = fc.read(cg.fstr("memory.current"))
         if cur is None:
             return
         m: dict[str, Any] = {"current": int(cur)}
-        pk = self._peak() if getattr(fc, "primary", True) else None
+        if getattr(fc, "primary", True):
+            pk = self._peak()
+        else:
+            # A read between samples, at a tool call's start or end: a spike since the last sample
+            # must count, or a call that allocates, is killed and returns within one tick shows none.
+            pk = self.peek_peak()
+            life = fc.read(cg.fstr("memory.peak"))      # this fd is never reset: the lifetime maximum
+            if life:
+                m["lifetime_peak"] = int(life)
         if pk is not None:
             m["peak"] = max(pk, m["current"])
         st = fc.read(cg.fstr("memory.stat"))
@@ -125,6 +146,7 @@ class MemoryController(Controller):
         out["mem"] = m
 
     def close(self):
-        if self._peak_fd is not None:
-            os.close(self._peak_fd)
-            self._peak_fd = None
+        with self._peak_lock:
+            if self._peak_fd is not None:
+                os.close(self._peak_fd)
+                self._peak_fd = None

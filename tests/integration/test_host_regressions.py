@@ -53,7 +53,9 @@ def test_oom_kill_in_a_call_that_exits_0(sandbox, rprof_factory):
     rp.stop()
     end = next(e for e in rp.events("tool_end") if e["call_id"] == r.call_id)
     assert end["evidence"]["exited_ok"] is True and end["evidence"]["oom_kill"] >= 1
-    # Sampled at 20 Hz; the 1 GiB allocation is killed within a tick, so the peak seen is partial.
+    # The allocation can rise, be killed and the call return within one 50 ms sample. rprof also
+    # reads the peak at tool_end (since the last sample on Linux 6.12+, or a new lifetime high on
+    # older kernels), so the spike still counts; this once flaked at 8 MiB on a fast CI runner.
     assert end["mem_peak_bytes"] > 64 * MiB
 
 
