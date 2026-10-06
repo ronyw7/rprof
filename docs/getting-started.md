@@ -199,7 +199,7 @@ calls each command a *tool call*:
 
 ```text
 view: t = 0 s · defaults (2 segments in profile)
-now:  cpu 2 cores
+now:  cpu 2 cores · disk not throttled
 next: at 10 s → cpu 0.5 cores · at 25 s → memory 512 MiB hard · at 40 s → back to defaults
 
 c1 seg=0 exit=0 cause=None explain=None

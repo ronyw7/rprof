@@ -126,7 +126,8 @@ def describe(name: str, value) -> str | None:
     if name == "cpu.cores":
         return f"cpu {u.fmt_num(value)} core{'s' if value != 1 else ''}"
     if name == "cpu.cpus":
-        return f"cpus {value}"
+        n = u.cpuset_size(value)
+        return f"{n} CPU{'s' if n != 1 else ''}"
     if name == "cpu.period":
         return None if value == 100 else f"cpu period {u.fmt_num(value)} ms"
     if name == "mem.swap_max":

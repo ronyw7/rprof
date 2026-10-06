@@ -102,14 +102,14 @@ which has four segments. With `visibility: current`, it sees only the limits in 
 
 ```text
 t = 84 s
-now:  memory 1 GiB hard (800 MiB soft) · max 16 processes · cpu 4 cores
+now:  memory 1 GiB hard (800 MiB soft) · max 16 processes · cpu 4 cores · disk not throttled
 ```
 
 With `visibility: full`, it also sees which segment it is in and the next three changes:
 
 ```text
 t = 84 s · segment 1 of 4
-now:  memory 1 GiB hard (800 MiB soft) · max 16 processes · cpu 4 cores
+now:  memory 1 GiB hard (800 MiB soft) · max 16 processes · cpu 4 cores · disk not throttled
 next: at 120 s → network loss 30% · at 150 s → network blocked (reject) · at 180 s → cpu 0.5 cores
 ```
 

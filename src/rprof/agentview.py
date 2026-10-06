@@ -20,9 +20,18 @@ from .util import atomic_write, dumps
 NEXT_SHOWN = 3
 
 
+IO_KNOBS = ("io.rbps", "io.wbps", "io.riops", "io.wiops")
+DISK_FREE = "disk not throttled"
+
+
 def _phrases(flat: dict[str, Any]) -> list[str]:
     return [p for p in K.describe_limits({k: v for k, v in flat.items() if not k.startswith("harness.")})
             if not p.startswith("deadline")]
+
+
+def _disk_free(limits: dict[str, Any]) -> bool:
+    """No disk bandwidth or IOPS limit in force: the disk runs at its own speed."""
+    return all(limits.get(k) is None for k in IO_KNOBS)
 
 
 class AgentView:
@@ -74,13 +83,18 @@ class AgentView:
         else:
             head = f"t = {t:.0f} s"
         lines.append(head)
-        now = _phrases(p.limits_at(t))
+        lim = p.limits_at(t)
+        now = _phrases(lim)
+        if now and _disk_free(lim):
+            now.append(DISK_FREE)    # next to other limits; with none at all, "no limits" says it
         lines.append("now:  " + (" · ".join(now) if now else "no limits"))
         if self.visibility == "full":
             nxt = []
             for u in d["upcoming"][:NEXT_SHOWN]:
                 vals = {k: K.KNOBS[k].parse(v) if not K.is_unified(k) else v for k, v in u["changes"].items()}
                 ph = _phrases(vals)
+                if any(k in IO_KNOBS for k in vals) and _disk_free(p.limits_at(u["t0"])):
+                    ph.append(DISK_FREE)            # a segment that lifts the disk limits
                 if not ph:  # a segment that only changes harness knobs (e.g. its deadline)
                     ph = [d for k, v in vals.items() if k.startswith("harness.") and (d := K.describe(k, v))]
                 desc = " · ".join(ph) if ph else ("back to defaults" if not u["changes"] else

@@ -62,3 +62,17 @@ def test_write_atomic_files(example, tmp_path):
 def test_no_limits_text():
     p = profile_from_dict({"version": 1, "name": "x", "visibility": "current"})
     assert AgentView(p).text(3).splitlines()[1] == "now:  no limits"
+
+
+def test_cpu_sets_are_counted_and_unthrottled_disks_said():
+    p = profile_from_dict({"version": 1, "name": "x", "visibility": "full",
+                           "defaults": {"cpu": {"cpus": "0,2,4,6,56,58,60,62"}, "mem": {"max": "2Gi"}},
+                           "segments": [{"from": 10, "to": 20, "io": {"wbps": "10Mi"}}]})
+    lines = AgentView(p).text(0).splitlines()
+    assert lines[1] == "now:  memory 2 GiB hard · 8 CPUs · disk not throttled"
+    lines = AgentView(p).text(12).splitlines()
+    assert lines[1] == "now:  memory 2 GiB hard · 8 CPUs · disk write 10 MiB/s"
+    # Lifting a disk limit is announced as such, not dropped.
+    q = profile_from_dict({"version": 1, "name": "y", "visibility": "full", "defaults": {"io": {"wbps": "10Mi"}},
+                           "segments": [{"from": 10, "to": 20, "io": {"wbps": "max"}, "mem": {"max": "4Gi"}}]})
+    assert "at 10 s → memory 4 GiB hard · disk not throttled" in AgentView(q).text(0)
