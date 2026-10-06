@@ -90,11 +90,45 @@ def _span(t0: float, t1: float | None) -> str:
     return f"after {u.fmt_num(t0)} s" if t1 is None else f"{u.fmt_num(t0)}–{u.fmt_num(t1)} s"
 
 
+def _cli_size(b: int) -> str:
+    return f"{b >> 30}G" if b % (1 << 30) == 0 else f"{b >> 20}M"
+
+
+def _span_words(s: float) -> str:
+    if s % 3600 == 0:
+        return f"{u.fmt_num(s / 3600)} h"
+    if s % 60 == 0:
+        return f"{u.fmt_num(s / 60)} min"
+    return f"{u.fmt_num(s)} s"
+
+
+def leases(profile: Profile) -> str:
+    """How the agent leases more than its baseline, with the profile's ceiling in the example."""
+    from .lease import phrase
+    ceiling = profile.lease_max
+    example = ["lease request"]
+    if "cpu.cores" in ceiling:
+        example.append(f"--cpus {u.fmt_num(ceiling['cpu.cores'])}")
+    if "mem.max" in ceiling:
+        example.append(f"--mem {_cli_size(ceiling['mem.max'])}")
+    example.append("--for 10m")
+    return (f"You can lease more while you need it, up to {phrase(ceiling)} in total, with the `lease` command "
+            f"(`lease --help` explains it): `{' '.join(example)}` raises your limits to those totals until the "
+            "lease ends, `lease release` gives them back, and `lease status` shows what you hold. A lease is "
+            f"granted at once and lasts at most {_span_words(profile.lease_max_duration)}; when it ends, your "
+            "limits return to the baseline, and processes then using more memory than the baseline are killed. "
+            "Leased resources come from a pool shared with other jobs on this machine: lease only what you need, "
+            "for as long as you need it.")
+
+
 def describe(profile: Profile, capabilities: dict | None = None) -> str | None:
     """The text for ``profile``; None if its visibility is ``none``."""
     if profile.visibility == "none":
         return None
     features = (capabilities or {}).get("features") or {}
+    if profile.lease_max:
+        return (f"Resource environment: your container has {resources(profile.limits_at(0.0), features)}. "
+                f"{leases(profile)} {CLOSING}")
     intervals = profile.intervals()
     changes = profile.visibility == "full" and len(intervals) > 1
     if not changes:

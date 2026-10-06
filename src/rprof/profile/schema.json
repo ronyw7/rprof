@@ -301,6 +301,35 @@
       "title": "KnobMap",
       "type": "object"
     },
+    "LeasesModel": {
+      "additionalProperties": false,
+      "description": "What the agent may lease above its baseline (the profile's defaults): see rprof.lease.",
+      "properties": {
+        "max": {
+          "$ref": "#/$defs/KnobMap",
+          "description": "The most the agent may hold with a lease, as totals (cpu.cores, mem.max)"
+        },
+        "max_duration": {
+          "default": 3600,
+          "description": "Seconds a lease lasts at most",
+          "exclusiveMinimum": 0,
+          "title": "Max Duration",
+          "type": "number"
+        },
+        "grace": {
+          "default": 10,
+          "description": "Seconds between memory.high and memory.max dropping back when a lease ends",
+          "minimum": 0,
+          "title": "Grace",
+          "type": "number"
+        }
+      },
+      "required": [
+        "max"
+      ],
+      "title": "LeasesModel",
+      "type": "object"
+    },
     "MemKnobs": {
       "additionalProperties": false,
       "properties": {
@@ -652,6 +681,17 @@
       },
       "title": "Segments",
       "type": "array"
+    },
+    "leases": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LeasesModel"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     }
   },
   "required": [

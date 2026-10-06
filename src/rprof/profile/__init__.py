@@ -53,6 +53,10 @@ class Profile:
     explicit: set[str] = field(default_factory=set)              # knobs named anywhere in the file
     segments: list[Segment] = field(default_factory=list)
     path: str | None = None
+    lease_max: dict[str, Any] = field(default_factory=dict)       # leasable knob -> most, canonical
+    lease_max_raw: dict[str, Any] = field(default_factory=dict)
+    lease_max_duration: float = 3600.0
+    lease_grace: float = 10.0
 
     # ------------------------------------------------------------ lookup
     def active(self, t: float) -> list[Segment]:
@@ -127,9 +131,13 @@ class Profile:
                 sd["label"] = s.label
             sd.update(nest(s.raw))
             segs.append(sd)
-        return {"version": self.version, "name": self.name, "clock": self.clock,
-                "visibility": self.visibility, "source": copy.deepcopy(self.source),
-                "defaults": nest(self.defaults_raw), "segments": segs}
+        out = {"version": self.version, "name": self.name, "clock": self.clock,
+               "visibility": self.visibility, "source": copy.deepcopy(self.source),
+               "defaults": nest(self.defaults_raw), "segments": segs}
+        if self.lease_max:
+            out["leases"] = {"max": nest(self.lease_max_raw), "max_duration": self.lease_max_duration,
+                             "grace": self.lease_grace}
+        return out
 
     def dump_yaml(self) -> str:
         return yaml.safe_dump(self.resolved_dict(), sort_keys=False, default_flow_style=None, width=100)
@@ -215,11 +223,35 @@ def profile_from_dict(data: Any, path: str | None = None) -> Profile:
         _check_cpu(f"segments[{s.index - 1}].cpu.cores", lim)
     _check_cpu("defaults.cpu.cores", defaults)
 
+    # Leases: totals above the baseline, on the knobs a lease can raise.
+    from ..lease import LEASABLE
+    lease_raw: dict[str, Any] = {}
+    lease_max: dict[str, Any] = {}
+    if m.leases is not None:
+        lease_raw = m.leases.max.flat_raw()
+        if not lease_raw:
+            problems.append(("leases.max", f"name what can be leased ({', '.join(LEASABLE)})"))
+        if segs:
+            problems.append(("leases", "a profile with leases can't have segments: the agent's leases are its "
+                                       "schedule"))
+        for k, v in lease_raw.items():
+            if k not in LEASABLE:
+                problems.append((f"leases.max.{k}", f"can't be leased (only {', '.join(LEASABLE)})"))
+                continue
+            lease_max[k] = K.KNOBS[k].parse(v)
+            if k not in d_flat:
+                problems.append((f"leases.max.{k}", f"set the baseline in defaults.{k} too"))
+            elif lease_max[k] is None or (defaults[k] is not None and lease_max[k] < defaults[k]):
+                problems.append((f"leases.max.{k}", f"{v} is below the baseline ({d_raw[k]})"))
+        explicit.update(k for k in ("mem.high",) if "mem.max" in lease_raw)   # leases move memory.high too
+
     if problems:
         raise ProfileError(problems)
     return Profile(name=m.name, version=m.version, clock=m.clock, visibility=m.visibility,
                    source=m.source, defaults_raw=d_raw, defaults=defaults, explicit=explicit,
-                   segments=segs, path=path)
+                   segments=segs, path=path, lease_max=lease_max, lease_max_raw=lease_raw,
+                   lease_max_duration=m.leases.max_duration if m.leases else 3600.0,
+                   lease_grace=m.leases.grace if m.leases else 10.0)
 
 
 def load_profile(path: str | Path) -> Profile:

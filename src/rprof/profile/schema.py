@@ -130,6 +130,15 @@ class SegmentModel(KnobMap):
         return v
 
 
+class LeasesModel(BaseModel):
+    """What the agent may lease above its baseline (the profile's defaults): see rprof.lease."""
+    model_config = ConfigDict(extra="forbid")
+    max: KnobMap = Field(description="The most the agent may hold with a lease, as totals (cpu.cores, mem.max)")
+    max_duration: float = Field(default=3600, gt=0, description="Seconds a lease lasts at most")
+    grace: float = Field(default=10, ge=0, description="Seconds between memory.high and memory.max dropping "
+                                                       "back when a lease ends")
+
+
 class ProfileModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
     version: Literal[1]
@@ -139,6 +148,7 @@ class ProfileModel(BaseModel):
     source: dict[str, Any] = Field(default_factory=dict)
     defaults: KnobMap = Field(default_factory=KnobMap)
     segments: list[SegmentModel] = Field(default_factory=list)
+    leases: Optional[LeasesModel] = None
 
 
 def json_schema() -> dict:

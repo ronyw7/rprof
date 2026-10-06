@@ -38,7 +38,7 @@ from .sampler import Sampler
 from .scheduler import Scheduler
 from .snapshot import Snapshot, TargetLock, restore, state_dir
 from .target import Target, docker, resolve
-from .target.cgroup import Cgroup, cgroup_of_pid, cgroup_root, move_pid
+from .target.cgroup import Cgroup, cgroup_of_pid, cgroup_root, move_pid, proc_root
 from .util import (MissingCapability, PermissionDenied, RestoreFailed, RprofError, atomic_write, chown_tree,
                    is_root, log, run_cmd, sudo_owner, write_json)
 
@@ -279,6 +279,12 @@ class RunSession:
             self.sampler.listeners.append(_protect_tick)
         self.scheduler = Scheduler(self.profile, self.controllers, self.managed, self.mode, self.clock,
                                    self.events, on_change=self._on_boundary)
+        self.lease_mgr = self.lease_loop = None
+        if self.profile.lease_max:
+            if self.mode != "enforce":
+                raise RprofError("a profile with leases needs --mode enforce", 2)
+            if not t.init_pid:
+                raise RprofError("leases need a container target: the lease command is installed in it", 2)
 
     def _ctl_dir(self) -> Path:
         assert self.target is not None
@@ -406,6 +412,9 @@ class RunSession:
         if self.protector:
             await loop.run_in_executor(None, self.protector.scan)
         await loop.run_in_executor(None, self.view.write, 0.0)
+        if self.profile.lease_max and not await loop.run_in_executor(None, self._start_leases):
+            await server.close()
+            return self.exit_code
         sampler_stop = threading.Event()
         sampler_thread = threading.Thread(target=self.sampler.run_blocking, args=(sampler_stop,),
                                           name="rprof-sampler", daemon=True)
@@ -468,6 +477,8 @@ class RunSession:
                 await asyncio.wait_for(tsk, 5)
             except (asyncio.TimeoutError, asyncio.CancelledError, Exception):  # noqa: BLE001
                 tsk.cancel()
+        if self.lease_loop is not None:
+            await loop.run_in_executor(None, self._stop_leases)
         sampler_stop.set()
         self._protect_wake.set()
         await loop.run_in_executor(None, sampler_thread.join, 10)
@@ -491,6 +502,35 @@ class RunSession:
             for sig in (signal.SIGINT, signal.SIGTERM):
                 loop.remove_signal_handler(sig)
         return self.exit_code
+
+    def _start_leases(self) -> bool:
+        """Install the lease command in the sandbox and start answering it; False (exit 1) on failure."""
+        from .lease import LeaseLoop, LeaseManager
+        assert self.target is not None and self.target.init_pid
+        root = proc_root() / str(self.target.init_pid) / "root"
+        sched = self.scheduler
+
+        def apply(values: dict[str, Any]) -> list[str]:
+            return sched.executor.submit(sched.apply_knobs, values).result()
+        self.lease_mgr = LeaseManager.for_profile(self.profile, root, apply, self.clock.now, self.events.emit)
+        try:
+            self.lease_mgr.install()
+        except OSError as e:
+            self.events.emit("error", code="lease_install_failed", message=f"{root}: {e}")
+            self.end_reason, self.exit_code = "error", 1
+            return False
+        self.lease_loop = LeaseLoop(self.lease_mgr)
+        self.lease_loop.start()
+        return True
+
+    def _stop_leases(self) -> None:
+        assert self.lease_loop is not None and self.lease_mgr is not None and self.run_dir is not None
+        self.lease_loop.join()
+        record = self.lease_mgr.close()
+        write_json(self.run_dir / "leases.json", {"base": self.lease_mgr.base, "ceiling": self.lease_mgr.ceiling,
+                                                  "max_duration": self.lease_mgr.max_duration,
+                                                  "grace": self.lease_mgr.grace, "leases": record})
+        self.meta["leases"] = {"count": len(record), "file": "leases.json"}
 
     def _hide_limits(self) -> bool:
         """Mask /sys/fs/cgroup in every mount namespace of the target; False (and exit 73) on failure."""
