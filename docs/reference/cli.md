@@ -160,6 +160,7 @@ rprof run --target TARGET [--profile PROFILE] [OPTIONS] [-- COMMAND ...]
 | `--protect` | Regular expression matched against process command lines. Matching processes are never chosen for memory kills. Repeatable. |
 | `--tell-agent` | With `--target harbor`: give the agent `rprof describe` of the profile |
 | `--tell-via` | Where: `instruction` (default; Harbor's `--extra-instruction`) or `system-prompt` (Claude Code's system prompt, Harbor's `--ak append_system_prompt`) |
+| `--tell-append` | With `--tell-agent`: a file whose text is added after the description (for example, guidance on using leases) |
 | `--agent-start` | With `--target harbor`: start the profile when a process whose command line contains this appears in the container. Default: known for Harbor's `terminus-2`, `claude-code` and `oracle` agents. |
 | `--net` | `docker:<name>` whose network the `net` knobs apply to. Repeatable. Default: the target container. |
 | `--io-device` | The disk for I/O limits, as `MAJ:MIN` or `/dev/…` |

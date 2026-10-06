@@ -266,6 +266,8 @@ def run(target: str = RunTargetOpt,
                                         "`rprof describe` of the profile (where: --tell-via)."),
         tell_via: str = typer.Option("instruction", "--tell-via", help="instruction: append it to the task's "
                                      "instruction; system-prompt: to the agent's system prompt (claude-code)."),
+        tell_append: Optional[str] = typer.Option(None, "--tell-append", help="With --tell-agent: a file whose "
+                                                  "text is added after the description."),
         agent_start: Optional[str] = typer.Option(None, "--agent-start", help="With --target harbor: start the "
                                                   "profile when a process whose command line contains this appears "
                                                   "(default: known per Harbor agent)."),
@@ -283,7 +285,7 @@ def run(target: str = RunTargetOpt,
                       ctl_dir=ctl_dir, allow_degraded=allow_degraded, duration=duration,
                       command=list(command or []), capabilities=capabilities, report=not no_report,
                       hide_limits=hide_limits, agent_start=agent_start, tell_agent=tell_agent,
-                      tell_via=tell_via)
+                      tell_via=tell_via, tell_append=tell_append)
     try:
         code, sess = do_run(opts)
     except ProfileError as e:

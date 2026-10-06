@@ -72,6 +72,7 @@ class RunOptions:
     agent_start: str | None = None      # --target harbor: the agent's start marker, if not the known one
     tell_agent: bool = False            # --target harbor: tell the agent `rprof describe` of the profile
     tell_via: str = "instruction"       # where: the task's instruction, or the agent's system prompt
+    tell_append: str | None = None      # a file whose text follows the description (e.g. guidance)
 
 
 def git_sha() -> str | None:
@@ -793,6 +794,12 @@ def _run_harbor(opts: RunOptions, profile: Profile | None) -> tuple[int, RunSess
     if opts.tell_agent:
         from .describe import describe
         told = describe(profile, load_selftest_caps(opts.capabilities))
+        if told is not None and opts.tell_append:
+            try:
+                extra = Path(opts.tell_append).read_text().strip()
+            except OSError as e:
+                raise RprofError(f"--tell-append: {opts.tell_append}: {e.strerror}", 2) from None
+            told = told + ("\n\n" if extra else "") + extra
         if told is None:
             raise RprofError("--tell-agent: the profile's visibility is none, so there is nothing to tell", 2)
         command += _tell_args(command, told, opts.tell_via)

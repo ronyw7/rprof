@@ -110,3 +110,37 @@ def test_swap_is_what_the_host_can_actually_give():
     p = _p({"visibility": "full", "defaults": {"mem": {"max": "48Gi", "swap_max": "48Gi"}}})
     assert "2 GiB of swap" in describe(p, CAPS)          # the host has 2 GiB, not the allowance's 48
     assert "swap" not in describe(p)                     # host swap unknown: left out
+
+
+def test_tell_append_adds_a_files_text_after_the_description(monkeypatch, tmp_path):
+    import rprof.harbor as H
+    from rprof import runner
+    seen = {}
+
+    class FakeLaunch:
+        def __init__(self, command, **kw):
+            seen["command"] = command
+
+        def start(self):
+            pass
+
+        def find_trial(self):
+            return None
+
+        def wait(self):
+            return 0
+
+        def stop(self):
+            pass
+
+    monkeypatch.setattr(H, "Launch", FakeLaunch)
+    p = tmp_path / "p.yaml"
+    p.write_text("version: 1\nname: x\nvisibility: full\ndefaults: {mem: {max: 1Gi}}\n")
+    g = tmp_path / "guide.txt"
+    g.write_text("Lease per step.\n")
+    opts = runner.RunOptions(target="harbor", profile=str(p), command=["harbor", "run", "-a", "claude-code"],
+                             tell_agent=True, tell_via="system-prompt", tell_append=str(g),
+                             capabilities=str(tmp_path / "none.json"), quiet=True)
+    runner.run(opts)
+    text = seen["command"][-1]
+    assert text.startswith("append_system_prompt=Resource environment:") and text.endswith("\n\nLease per step.")
