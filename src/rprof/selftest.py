@@ -411,6 +411,14 @@ def _enforcement(quick: bool, image: str, out: Reporter) -> tuple[dict, dict]:
             record(Check("buffered writes", None, "limit applies to buffered I/O"
                          if features["io_buffered_writes_throttled"] else "limit skips buffered I/O",
                          f"{dt:.1f} s", f"write {mb} MiB without O_DIRECT, then sync, under io.wbps=20Mi", info=True))
+            # Not a knob either: the disk's own speed, which `rprof describe` reports when a profile
+            # doesn't throttle it.
+            bw = disk_bandwidth(1024 if quick else 4096)
+            if bw:
+                features["disk_bandwidth"] = bw
+                record(Check("disk bandwidth", None, "native speed, not throttled",
+                             f"{bw['write_bps'] / 1e9:.1f} GB/s write, {bw['read_bps'] / 1e9:.1f} GB/s read",
+                             f"{bw['bytes'] >> 20} MiB with O_DIRECT in {bw['path']}", info=True))
 
         # ---- disk
         cap = 100
@@ -456,6 +464,24 @@ def _enforcement(quick: bool, image: str, out: Reporter) -> tuple[dict, dict]:
     features["psi"] = Path("/proc/pressure/cpu").exists()
     features["swap_bytes"] = swap_total
     return knobs, features
+
+
+def disk_bandwidth(mib: int = 4096) -> dict | None:
+    """The disk's native write and read speed where Docker keeps containers: MiB of direct I/O."""
+    root = run_cmd(["docker", "info", "-f", "{{.DockerRootDir}}"], timeout=20, quiet=True).out.strip() or "/var/lib/docker"
+    f = Path(root) / f".rprof-bandwidth-{uuid.uuid4().hex[:6]}"
+    try:
+        out = {}
+        for key, args in (("write_bps", ["if=/dev/zero", f"of={f}", "oflag=direct"]),
+                          ("read_bps", [f"if={f}", "of=/dev/null", "iflag=direct"])):
+            t0 = time.monotonic()
+            r = run_cmd(["dd", *args, "bs=1M", f"count={mib}"], timeout=600, quiet=True)
+            if not r.ok:
+                return None
+            out[key] = int(mib * (1 << 20) / (time.monotonic() - t0))
+        return {"path": root, "bytes": mib << 20, **out}
+    finally:
+        f.unlink(missing_ok=True)
 
 
 def _ping(nb: Box, dest: str, count: int, interval: float = 0.2) -> tuple[float | None, float | None, float]:

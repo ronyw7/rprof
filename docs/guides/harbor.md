@@ -137,15 +137,17 @@ rprof sets swap to 0 whenever it manages memory, unless told otherwise. Match Ha
 `defaults`, and use `swap_max: 0` inside a squeeze, so that memory over the limit is killed
 rather than swapped.
 
-**Tell the agent, if it should know.** Harbor's `--extra-instruction` appends text to the task's
-instruction, for example the schedule:
+**Tell the agent, if it should know.** `--tell-agent` appends `rprof describe` of the profile to
+the task's instruction, so every trial is told the same thing, in the same words, as is enforced:
 
 ```bash
-... -- harbor run ... --extra-instruction "$(cat schedule.txt)"
+sudo -E rprof run --target harbor --profile p.yaml --tell-agent -- harbor run ...
+rprof describe p.yaml            # to read it first
 ```
 
-Time 0 is when the agent starts, so the text can say "time 0 is when you receive this task; run
-`date` now to note it".
+How much it says follows the profile's `visibility`: the whole schedule for `full`, the limits at
+the start for `current`. A schedule's text tells the agent that time 0 is when it receives the
+task. The run's `meta.json` records the text (`harbor.told_agent`).
 
 ## Results
 
@@ -159,6 +161,7 @@ The run directory is the usual one; see [Read the results](results.md). `meta.js
 | `agent`, `agent_start` | The agent from `-a`, and the command-line fragment that started the profile |
 | `waited_container_s`, `waited_agent_s` | How long rprof waited for the container, then for the agent |
 | `command` | The `harbor run` command line |
+| `told_agent` | With `--tell-agent`, the text appended to the instruction |
 | `trial_dir`, `kept` | Harbor's directory for the trial, and the copy of it in the run directory (`harbor-trial`) |
 
 When Harbor finishes, rprof copies the trial's directory into the run directory as

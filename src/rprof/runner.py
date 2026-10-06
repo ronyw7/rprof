@@ -70,6 +70,7 @@ class RunOptions:
     quiet: bool = False
     hide_limits: bool = False
     agent_start: str | None = None      # --target harbor: the agent's start marker, if not the known one
+    tell_agent: bool = False            # --target harbor: append `rprof describe` to the task's instruction
 
 
 def git_sha() -> str | None:
@@ -299,7 +300,8 @@ class RunSession:
             "rprof_cgroup": None, "features": {"memory_peak_reset": None}, "hide_limits": o.hide_limits,
         }
         if self.harbor is not None:
-            meta["harbor"] = {**self.harbor[1].to_meta(), "command": self.harbor[0].command}
+            meta["harbor"] = {**self.harbor[1].to_meta(), "command": self.harbor[0].command,
+                              "told_agent": getattr(self, "told_agent", None)}
         self.meta = meta
         write_json(self.run_dir / "meta.json", meta)
 
@@ -722,7 +724,15 @@ def _run_harbor(opts: RunOptions, profile: Profile | None) -> tuple[int, RunSess
     from .harbor import PROTECT, Launch
     say = (lambda m: None) if opts.quiet else (lambda m: print(m, file=sys.stderr, flush=True))
     profile = profile or (load_profile(opts.profile) if opts.profile else unlimited_profile())
-    launch = Launch(list(opts.command), agent_start=opts.agent_start, say=say)
+    command = list(opts.command)
+    told = None
+    if opts.tell_agent:
+        from .describe import describe
+        told = describe(profile, load_selftest_caps(opts.capabilities))
+        if told is None:
+            raise RprofError("--tell-agent: the profile's visibility is none, so there is nothing to tell", 2)
+        command += ["--extra-instruction", told]     # Harbor appends it to the task's instruction
+    launch = Launch(command, agent_start=opts.agent_start, say=say)
 
     def interrupted(signum, frame):
         raise KeyboardInterrupt
@@ -747,6 +757,7 @@ def _run_harbor(opts: RunOptions, profile: Profile | None) -> tuple[int, RunSess
     sess = RunSession(dataclasses.replace(opts, target=f"docker:{trial.container_id}", command=[], protect=protect),
                       profile)
     sess.harbor = (launch, trial)
+    sess.told_agent = told
     try:
         code, sess = _run(sess)
     except BaseException:

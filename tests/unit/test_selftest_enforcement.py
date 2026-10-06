@@ -53,11 +53,11 @@ def test_every_enforceable_knob_is_checked_with_values_it_accepts(monkeypatch):
     for name, r in knobs.items():
         assert r["expected"] and r["observed"] and r["workload"] and "ok" in r, name
     statuses = [ln.split()[0] for ln in lines if ln.startswith("  ") and ln.split()[0] in S.COLORS]
-    assert statuses.count("INFO") == 1                                  # buffered writes
-    assert len(statuses) == len(knobs) + 1
+    assert statuses.count("INFO") == 2                                  # buffered writes, disk bandwidth
+    assert len(statuses) == len(knobs) + 2
     assert [ln.strip() for ln in lines if ln.strip() in ("CPU", "Memory", "Processes", "I/O", "Network")] == [
         "CPU", "Memory", "Processes", "I/O", "Network"]
-    assert "io_buffered_writes_throttled" in features
+    assert "io_buffered_writes_throttled" in features and features["disk_bandwidth"]["bytes"] == 1 << 30
 
 
 PASS = S.Check("net.rate", True, "8–12 Mbit/s", "9.56 Mbit/s", "iperf3 to a peer container for 8 s",

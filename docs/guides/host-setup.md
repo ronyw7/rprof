@@ -100,7 +100,9 @@ Summary
 Each row gives the status, the limit or measurement tested, the pass condition and what was
 observed. `PASS` and `FAIL` are what they say. `SKIP` means the check can't run on this host,
 for example because it has too little swap, or too few idle CPUs for a 2-core workload. `INFO`
-reports how the host behaves, with no pass condition. A failed or skipped check also shows the
+reports how the host behaves, with no pass condition: whether disk limits also slow buffered
+writes, and the disk's native bandwidth, which `rprof describe` reports for disks a profile doesn't
+throttle. A failed or skipped check also shows the
 workload that ran and a note on what went wrong. If a fidelity check fails, rprof keeps that
 recording and prints its path, so you can look at the samples.
 

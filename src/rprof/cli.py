@@ -220,6 +220,27 @@ def validate(profile: Path = typer.Argument(..., exists=False),
         _print_schedule(p)
 
 
+@app.command()
+def describe(profile: Path = typer.Argument(..., exists=True, dir_okay=False),
+             capabilities: Optional[str] = typer.Option(None, "--capabilities",
+                                                        help="selftest capabilities.json, for the measured disk speed.")):
+    """Print what an agent is told about its resources under a profile (what --tell-agent appends)."""
+    from .describe import describe as text_for
+    from .profile import ProfileError, load_profile
+    from .runner import load_selftest_caps
+    try:
+        p = load_profile(profile)
+    except ProfileError as e:
+        for path, msg in e.problems:
+            typer.echo(f"{path}: {msg}" if path else msg, err=True)
+        raise typer.Exit(1)
+    text = text_for(p, load_selftest_caps(capabilities))
+    if text is None:
+        typer.echo("rprof: the profile's visibility is none: the agent is told nothing", err=True)
+        raise typer.Exit(1)
+    typer.echo(text)
+
+
 @app.command(context_settings={"allow_extra_args": True, "ignore_unknown_options": False})
 def run(target: str = RunTargetOpt,
         profile: Optional[Path] = typer.Option(None, "--profile", "-p", help="Profile YAML (default: unlimited)."),
@@ -241,6 +262,8 @@ def run(target: str = RunTargetOpt,
         no_report: bool = typer.Option(False, "--no-report"),
         hide_limits: bool = typer.Option(False, "--hide-limits",
                                          help="Mask /sys/fs/cgroup in the sandbox so it can't read its limits."),
+        tell_agent: bool = typer.Option(False, "--tell-agent", help="With --target harbor: append `rprof describe` "
+                                        "of the profile to the task's instruction."),
         agent_start: Optional[str] = typer.Option(None, "--agent-start", help="With --target harbor: start the "
                                                   "profile when a process whose command line contains this appears "
                                                   "(default: known per Harbor agent)."),
@@ -257,7 +280,7 @@ def run(target: str = RunTargetOpt,
                       io_device=io_device, data_path=data_path, data_dir=data_dir, view_dir=view_dir,
                       ctl_dir=ctl_dir, allow_degraded=allow_degraded, duration=duration,
                       command=list(command or []), capabilities=capabilities, report=not no_report,
-                      hide_limits=hide_limits, agent_start=agent_start)
+                      hide_limits=hide_limits, agent_start=agent_start, tell_agent=tell_agent)
     try:
         code, sess = do_run(opts)
     except ProfileError as e:

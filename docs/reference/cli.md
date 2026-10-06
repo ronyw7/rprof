@@ -27,6 +27,7 @@ absolute or relative to `/sys/fs/cgroup`.
 | [`now`](#now) | Print the agent view of a running run |
 | [`report`](#report) | Regenerate a run's report |
 | [`timeline`](#timeline) | Print usage per interval |
+| [`describe`](#describe) | Print what an agent is told about its resources under a profile |
 | [`plot`](#plot) | Draw figures of usage and limits |
 | [`selftest`](#selftest) | Test enforcement on this host |
 | [`gen`](#gen) | Generate profiles |
@@ -157,6 +158,7 @@ rprof run --target TARGET [--profile PROFILE] [OPTIONS] [-- COMMAND ...]
 | `--name` | Label used in the run directory's name. Same rule as profile names: letters, digits, `.`, `_` and `-`, starting with a letter or digit, at most 64 characters. Default: the profile's name. |
 | `--harness` | `outside` or `inside` the sandbox. `inside` also opens a socket for the sandbox. Default: `outside`. |
 | `--protect` | Regular expression matched against process command lines. Matching processes are never chosen for memory kills. Repeatable. |
+| `--tell-agent` | With `--target harbor`: append `rprof describe` of the profile to the task's instruction (Harbor's `--extra-instruction`) |
 | `--agent-start` | With `--target harbor`: start the profile when a process whose command line contains this appears in the container. Default: known for Harbor's `terminus-2`, `claude-code` and `oracle` agents. |
 | `--net` | `docker:<name>` whose network the `net` knobs apply to. Repeatable. Default: the target container. |
 | `--io-device` | The disk for I/O limits, as `MAJ:MIN` or `/dev/…` |
@@ -235,6 +237,26 @@ rprof timeline RUN_DIR [--json]
 ```
 
 `--json` prints one JSON object per interval, with every field.
+
+## describe
+
+Prints what an agent is told about its resources under a profile, in sentences: CPUs, memory,
+disk and any other limits, and for `visibility: full` each interval of the schedule. Disk
+bandwidth the profile doesn't limit is described as not throttled, with the speed `rprof selftest`
+measured. `rprof run --target harbor --tell-agent` appends exactly this text to the task's
+instruction.
+
+```text
+rprof describe PROFILE [--capabilities FILE]
+```
+
+```text
+Resource environment: your container has 8 CPUs, 2 GiB of memory (processes that go above it are
+killed) and disk bandwidth that is not throttled (about 3.9 GB/s write, 4.4 GB/s read). Plan your
+work to fit within these limits.
+```
+
+Exits with 1 if the profile's `visibility` is `none`.
 
 ## plot
 

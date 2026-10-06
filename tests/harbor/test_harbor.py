@@ -32,11 +32,12 @@ def test_one_command_runs_a_harbor_trial_under_a_profile(harbor_bin, harbor_task
     jobs.mkdir()
     give_to_user(jobs)
     p = tmp_path / "p.yaml"
-    p.write_text("version: 1\nname: oneshot\ndefaults: {cpu: {cores: 2}, mem: {max: 1536Mi, swap_max: 1536Mi}}\n"
+    p.write_text("version: 1\nname: oneshot\nvisibility: full\n"
+                 "defaults: {cpu: {cores: 2}, mem: {max: 1536Mi, swap_max: 1536Mi}}\n"
                  "segments:\n  - {from: 1, to: 3, cpu: {cores: 0.5}}\n")
     runs = tmp_path / "runs"
     r = subprocess.run(RPROF + ["run", "--target", "harbor", "--profile", str(p), "--runs-dir", str(runs),
-                                "--view-dir", str(tmp_path / "view"), "--",
+                                "--view-dir", str(tmp_path / "view"), "--tell-agent", "--",
                                 harbor_bin, "run", "-p", str(task), "-a", "oracle", "-o", str(jobs), "-y"],
                        cwd=ROOT, capture_output=True, text=True, timeout=600)
     assert r.returncode == 0, r.stderr[-3000:]
@@ -54,6 +55,10 @@ def test_one_command_runs_a_harbor_trial_under_a_profile(harbor_bin, harbor_task
     assert h["kept"] == "harbor-trial" and h["trial_dir"] == str(trial_dirs[0])
     assert (run / "harbor-trial" / "verifier" / "reward.txt").read_text().strip() == "1"
     assert (run / "harbor-trial" / "agent").is_dir() and (run / "harbor-trial" / "result.json").exists()
+    # --tell-agent: Harbor received exactly the text rprof describes, and the run records it.
+    told = h["told_agent"]
+    assert told.startswith("Resource environment:") and "1.5 GiB of memory" in told
+    assert json.loads((run / "harbor-trial" / "config.json").read_text())["extra_instructions"] == [told]
 
     events = [json.loads(x) for x in (run / "events.jsonl").read_text().splitlines()]
     assert [e["boundary"] for e in events if e["type"] == "segment_applied"] == [0, 1, 3]
@@ -104,7 +109,7 @@ def test_parallel_runs_each_follow_their_own_trial(harbor_bin, harbor_task, work
         jobs.mkdir()
         give_to_user(jobs)
         p = tmp_path / f"{cond}.yaml"
-        p.write_text(f"version: 1\\nname: {cond}\\ndefaults: {{mem: {{max: {mem}}}}}\\n")
+        p.write_text(f"version: 1\nname: {cond}\ndefaults: {{mem: {{max: {mem}}}}}\n")
         procs[cond] = (subprocess.Popen(
             RPROF + ["run", "--target", "harbor", "--profile", str(p), "--runs-dir", str(tmp_path / "runs"),
                      "--view-dir", str(tmp_path / f"view-{cond}"), "--",
