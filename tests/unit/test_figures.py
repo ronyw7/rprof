@@ -77,6 +77,17 @@ def test_default_metrics_add_limits_the_core_four_do_not_show(tmp_path):
     assert F.default_metrics(runs) == list(F.CORE)
 
 
+def test_runs_under_the_same_limits_share_one_line(tmp_path):
+    a = make_run(tmp_path, "a", "enforce", {"mem": {"max": "1Gi"}})
+    b = make_run(tmp_path, "b", "enforce", {"mem": {"max": "1Gi"}})
+    rows = (b / "samples.jsonl").read_text().splitlines()
+    (b / "samples.jsonl").write_text("\n".join(rows[:120]) + "\n")       # b ran 12 s, a 20 s
+    c = make_run(tmp_path, "c", "enforce", {"mem": {"max": "2Gi"}})
+    lines = F._limits([RunData(a), RunData(b), RunData(c)], F.METRICS["memory"])
+    assert [(idx, knob) for idx, knob, _ in lines] == [([0, 1], "mem.max"), ([2], "mem.max")]
+    assert lines[0][2][0][-1] == pytest.approx(20.0)                      # drawn to the longer run's end
+
+
 def test_log_axis_only_when_peaks_and_limits_span_decades():
     assert F._log_floor([[0.0, 1.0, 1000.0]], [10.0]) == 1.0          # a 1000 peak against a limit of 10
     assert F._log_floor([[1.0, 2.0, 3.0]], []) is None

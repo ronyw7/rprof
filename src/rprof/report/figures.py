@@ -148,19 +148,26 @@ def binned(rd: RunData, m: Metric) -> tuple[list[float], list[float]]:
     return xs, ys
 
 
-def _limits(runs: list[RunData], m: Metric) -> list[tuple[int, str, tuple[list, list]]]:
-    """(run index, knob, step points) for each limit an enforce-mode run sets; one per distinct schedule."""
-    out, seen = [], []
+def _limits(runs: list[RunData], m: Metric) -> list[tuple[list[int], str, tuple[list, list]]]:
+    """(indices of the runs, knob, step points) for each limit an enforce-mode run sets, one per
+    distinct schedule: runs under the same profile share a line however long each ran."""
+    out: dict[tuple, tuple[list[int], str, tuple[list, list]]] = {}
     for i, rd in enumerate(runs):
         for knob, scale in m.knobs:
             if not _limited(rd, knob):
                 continue
             st = _limit_steps(rd, knob, scale)
-            key = st and (knob, tuple(st[0]), tuple(None if y != y else y for y in st[1]))
-            if st and key not in seen:
-                seen.append(key)
-                out.append((i, knob, st))
-    return out
+            if not st:
+                continue
+            key = (knob, tuple((b, repr(rd.profile.limits_at(b).get(knob))) for b in (0.0, *rd.profile.boundaries())))
+            if key not in out:
+                out[key] = ([i], knob, st)
+                continue
+            idx, _, prev = out[key]
+            idx.append(i)
+            if st[0][-1] > prev[0][-1]:                 # draw it to the end of the longest run
+                out[key] = (idx, knob, st)
+    return list(out.values())
 
 
 def _si(v: float, _pos=None) -> str:
@@ -227,11 +234,16 @@ def draw(ax, style: str, runs: list[RunData], labels: list[str], m: Metric, mark
         every = max(1, len(xs) // markers)
         ax.plot(xs, ys, label=label, markevery=(i * every // max(1, len(runs)), every),
                 **st["series"][i % len(st["series"])])
-    distinct = {k for _, k, _ in limits}
-    for i, knob, (xs, ys) in limits:
-        name = "Limit" if len(distinct) == 1 and len(limits) == 1 else f"{labels[i]} {knob}" if len(runs) > 1 \
-            else knob
-        kw = dict(st["limit"]) if len(limits) == 1 else {**st["limit"], "color": st["series"][i]["color"]}
+    shared_ls = iter(("--", ":", "-.", (0, (5, 1, 1, 1))))
+    for idx, knob, (xs, ys) in limits:
+        i = idx[0]
+        shared = len(idx) > 1 or len(runs) == 1
+        if len(limits) == 1:
+            name, kw = "Limit", dict(st["limit"])
+        elif shared:                                # one line for every run under it, in the limit colour
+            name, kw = knob, {**st["limit"], "ls": next(shared_ls, "--")}
+        else:
+            name, kw = f"{labels[i]} {knob}", {**st["limit"], "color": st["series"][i]["color"]}
         ax.step(xs, ys, where="post", label=name, **kw)
     ax.set_xlabel("Time (s)")
     ax.set_ylabel(m.ylabel)
