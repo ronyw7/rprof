@@ -92,6 +92,23 @@ def test_runs_under_the_same_limits_share_one_line(tmp_path):
     assert len(F._limits([RunData(x), RunData(y)], F.METRICS["cpu"])) == 1
 
 
+def test_limit_lines_follow_leases(tmp_path):
+    from rprof.report.plot import _limit_steps
+    d = make_run(tmp_path, "l", "enforce")
+    (d / "profile.yaml").write_text(yaml.safe_dump(
+        {"version": 1, "name": "l", "defaults": {"cpu": {"cores": 1}, "mem": {"max": "1Gi"}},
+         "leases": {"max": {"cpu": {"cores": 4}, "mem": {"max": "8Gi"}}}}))
+    ev = [{"t": 5.0, "type": "lease_limits", "values": {"cpu.cores": 4.0, "mem.max": 8 << 30, "mem.high": None}},
+          {"t": 12.0, "type": "lease_limits", "values": {"cpu.cores": 1.0, "mem.high": 1 << 30}},
+          {"t": 22.0, "type": "lease_limits", "values": {"mem.max": 1 << 30, "mem.high": None}},
+          {"t": 20.0, "type": "run_end"}]
+    (d / "events.jsonl").write_text("".join(json.dumps(e) + "\n" for e in ev))
+    rd = RunData(d)
+    assert _limit_steps(rd, "cpu.cores") == ([0.0, 5.0, 12.0, 20.0], [1.0, 4.0, 1.0, 1.0])
+    xs, ys = _limit_steps(rd, "mem.max", MiB)
+    assert xs == [0.0, 5.0, 20.0] and ys == [1024.0, 8192.0, 8192.0]     # the drop after 20 s is past the end
+
+
 def test_log_axis_only_when_peaks_and_limits_span_decades():
     assert F._log_floor([[0.0, 1.0, 1000.0]], [10.0]) == 1.0          # a 1000 peak against a limit of 10
     assert F._log_floor([[1.0, 2.0, 3.0]], []) is None

@@ -16,12 +16,23 @@ MiB = 1024 ** 2
 SPAN_COLORS = ("#4C78A8", "#72B7B2", "#54A24B", "#EECA3B", "#B279A2", "#FF9DA6")
 
 
+def _overrides(rd: RunData, knob: str) -> list[tuple[float, object]]:
+    """Values set outside the profile's schedule, as (t, value): by leases (``lease_limits`` events)."""
+    return [(e["t"], e["values"][knob]) for e in rd.events
+            if e.get("type") == "lease_limits" and knob in (e.get("values") or {})]
+
+
 def _limit_steps(rd: RunData, knob: str, scale: float = 1.0) -> tuple[list[float], list[float]] | None:
-    """Step-line points for a knob over [0, t_end]; None if never limited."""
-    pts = [0.0] + [b for b in rd.profile.boundaries() if 0 < b < rd.t_end] + [rd.t_end]
+    """Step-line points for a knob over [0, t_end], as applied (the profile, and any leases); None if
+    never limited."""
+    over = [(t, v) for t, v in _overrides(rd, knob) if t < rd.t_end]
+    pts = sorted({0.0, rd.t_end, *(b for b in rd.profile.boundaries() if 0 < b < rd.t_end), *(t for t, _ in over)})
     xs, ys, any_set = [], [], False
     for t in pts:
         v = rd.profile.limits_at(t).get(knob)
+        for tv, vv in over:                     # the latest lease change at or before t wins
+            if tv <= t:
+                v = vv
         if knob == "cpu.cpus" and v is not None:
             from ..units import cpuset_size
             v = cpuset_size(v)

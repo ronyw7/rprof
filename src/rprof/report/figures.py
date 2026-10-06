@@ -22,7 +22,7 @@ from matplotlib import ticker  # noqa: E402
 
 from .. import knobs as K  # noqa: E402
 from .data import RunData  # noqa: E402
-from .plot import _limit_steps  # noqa: E402
+from .plot import _limit_steps, _overrides  # noqa: E402
 
 MiB = 1 << 20
 BIN_S = 0.5
@@ -168,7 +168,8 @@ def _limits(runs: list[RunData], m: Metric) -> list[tuple[list[int], str, tuple[
                 continue
             # Keyed by the value drawn: two different 8-CPU sets are the same line.
             key = (knob, tuple((b, _drawn(rd.profile.limits_at(b).get(knob), knob))
-                               for b in (0.0, *rd.profile.boundaries())))
+                               for b in (0.0, *rd.profile.boundaries())),
+                   tuple((round(t, 1), v) for t, v in _overrides(rd, knob)))        # leases differ per run
             if key not in out:
                 out[key] = ([i], knob, st)
                 continue
