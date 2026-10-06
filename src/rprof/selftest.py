@@ -467,7 +467,7 @@ def _enforcement(quick: bool, image: str, out: Reporter) -> tuple[dict, dict]:
     return knobs, features
 
 
-def disk_bandwidth(mib: int = 4096, repeats: int = 3) -> dict | None:
+def disk_bandwidth(mib: int = 4096, repeats: int = 5) -> dict | None:
     """The disk's native write and read speed where Docker keeps containers: the median of
     ``repeats`` passes of ``mib`` MiB of direct I/O (a shared disk varies from pass to pass)."""
     root = run_cmd(["docker", "info", "-f", "{{.DockerRootDir}}"], timeout=20, quiet=True).out.strip() or "/var/lib/docker"
