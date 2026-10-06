@@ -143,3 +143,12 @@ def test_paired_panels_share_a_log_scale(tmp_path):
     # With no traffic in, net-in stays a plain linear panel.
     quiet = [RunData(make_run(tmp_path, "b", "enforce", {"net": {"rate": "10mbit"}}))]
     assert F.log_floors(quiet, ["net-in", "net-out"])["net-in"] is None
+
+
+def test_memory_gets_a_log_axis_when_runs_differ_by_decades(tmp_path):
+    big = RunData(make_run(tmp_path, "big", "enforce", {"mem": {"max": "48Gi"}}))
+    small = RunData(make_run(tmp_path, "small", "enforce", {"mem": {"max": "100Mi"}}))
+    assert F.log_floors([big, small], ["memory"])["memory"]                 # 48 GiB limit beside 100 MiB
+    assert F.log_floors([big], ["memory"])["memory"]                        # 200 MiB under a 48 GiB limit: visible too
+    plain = RunData(make_run(tmp_path, "plain", "measure"))
+    assert F.log_floors([plain], ["memory"])["memory"] is None              # no limit, steady 200 MiB: linear

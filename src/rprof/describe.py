@@ -95,12 +95,12 @@ def describe(profile: Profile, capabilities: dict | None = None) -> str | None:
         text = f"Resource environment: your container has {resources(profile.limits_at(0.0), features)}."
         if profile.visibility == "current" and len(intervals) > 1:
             text += " These limits may change while you work."
-        return text + " Plan your work to fit within these limits."
+        return text + " Be aware of these resources and plan your work around them."
     lines = ["Resource environment: your container's resources change over time. Time 0 is when you "
              "receive this task: run `date` now and keep track of the time."]
     for t0, t1 in intervals:
         lines.append(f"- {_span(t0, t1)}: {resources(profile.limits_at(t0), features)}.")
-    lines.append("Plan your work to fit within these limits.")
+    lines.append("Be aware of these resources and plan your work around them.")
     return "\n".join(lines)
 
 

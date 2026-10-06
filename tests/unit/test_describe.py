@@ -21,7 +21,7 @@ def test_a_fixed_budget_is_one_sentence():
     assert describe(p, CAPS) == (
         "Resource environment: your container has 8 CPUs, 2 GiB of memory (processes that go above it are "
         "killed) and disk bandwidth that is not throttled (about 3.9 GB/s write, 4.4 GB/s read). "
-        "Plan your work to fit within these limits.")
+        "Be aware of these resources and plan your work around them.")
 
 
 def test_without_a_measurement_the_disk_is_just_not_throttled():
@@ -29,7 +29,7 @@ def test_without_a_measurement_the_disk_is_just_not_throttled():
     assert describe(p) == (
         "Resource environment: your container has 1 GiB of memory (processes that go above it are killed; "
         "above 900 MiB they are slowed down) and disk bandwidth that is not throttled. "
-        "Plan your work to fit within these limits.")
+        "Be aware of these resources and plan your work around them.")
 
 
 def test_a_schedule_lists_each_interval_and_time_zero():

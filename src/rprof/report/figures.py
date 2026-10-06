@@ -85,7 +85,7 @@ METRICS: dict[str, Metric] = {m.name: m for m in (
     Metric("cpu", "CPU (cores)", _path("cpu", "usage_usec"), True, 1e6, (("cpu.cores", 1.0), ("cpu.cpus", 1.0))),
     Metric("cpu-throttled", "CPU throttled (%)", _path("cpu", "throttled_usec"), True, 1e4, pct=True),
     Metric("memory", "Memory (MiB)", lambda rd: rd.mem_series("non_reclaimable")[0], False, MiB,
-           (("mem.max", MiB), ("mem.high", MiB))),
+           (("mem.max", MiB), ("mem.high", MiB)), log=True),     # runs under 1 GiB and 48 GiB side by side
     Metric("swap", "Swap (MiB)", _path("mem", "swap_current"), False, MiB, (("mem.swap_max", MiB),)),
     Metric("disk-read", "Disk read (MiB/s)", lambda rd: rd.io_series("rbytes"), True, MiB, (("io.rbps", MiB),),
            log=True),
